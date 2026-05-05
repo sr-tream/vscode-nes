@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-
+import { LlamaServerClient } from "~/api/llama-server-client.ts";
+import type { CompletionClient } from "~/api/ollama-client.ts";
 import { OllamaClient } from "~/api/ollama-client.ts";
 import { config } from "~/core/config.ts";
 
@@ -11,7 +12,10 @@ export class OllamaServer implements vscode.Disposable {
 	private lastWarningAt = 0;
 	private warned = false;
 
-	getClient(): OllamaClient {
+	getClient(): CompletionClient {
+		if (config.backend === "llama-server") {
+			return new LlamaServerClient(config.llamaServerUrl);
+		}
 		return new OllamaClient(config.ollamaUrl);
 	}
 
@@ -39,11 +43,14 @@ export class OllamaServer implements vscode.Disposable {
 		if (this.warned && now - this.lastWarningAt < FAILURE_COOLDOWN_MS) return;
 		this.warned = true;
 		this.lastWarningAt = now;
-		vscode.window.showWarningMessage(
-			`Sweep: Ollama is not reachable at ${config.ollamaUrl}. ` +
-				"Start Ollama and pull the sweep model: " +
-				"`ollama pull hf.co/sweepai/sweep-next-edit-1.5b`.",
-		);
+		const message =
+			config.backend === "llama-server"
+				? `Sweep: llama-server is not reachable at ${config.llamaServerUrl}. ` +
+					"Start llama-server with the sweep GGUF loaded."
+				: `Sweep: Ollama is not reachable at ${config.ollamaUrl}. ` +
+					"Start Ollama and pull the sweep model: " +
+					"`ollama pull hf.co/sweepai/sweep-next-edit-1.5b`.";
+		vscode.window.showWarningMessage(message);
 	}
 
 	dispose(): void {}

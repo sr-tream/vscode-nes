@@ -128,10 +128,21 @@
 					"default": 0,
 					"description": "Unix timestamp (ms) until which autocomplete is snoozed (0 disables snooze)"
 				},
+				"sweep.backend": {
+					"type": "string",
+					"enum": ["ollama", "llama-server"],
+					"default": "ollama",
+					"description": "Completion backend. 'ollama' uses /api/generate (honours num_ctx and keep_alive); 'llama-server' uses llama.cpp's OpenAI-compatible /v1/completions (context size is set at server startup via --ctx-size)."
+				},
 				"sweep.ollamaUrl": {
 					"type": "string",
 					"default": "http://localhost:11434",
 					"description": "Base URL of the Ollama server serving the sweep model"
+				},
+				"sweep.llamaServerUrl": {
+					"type": "string",
+					"default": "http://localhost:8080",
+					"description": "Base URL of the llama.cpp server (llama-server) serving the sweep model"
 				},
 				"sweep.modelName": {
 					"type": "string",

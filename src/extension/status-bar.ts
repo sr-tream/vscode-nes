@@ -77,6 +77,8 @@ export function registerStatusBarCommands(
 				action: string;
 			}
 
+			const backendLabel =
+				config.backend === "llama-server" ? "llama-server" : "Ollama";
 			const items: MenuItem[] = [
 				{
 					label: `$(${isEnabled ? "check" : "circle-outline"}) Autocomplete`,
@@ -93,9 +95,9 @@ export function registerStatusBarCommands(
 					action: isSnoozed ? "resumeSnooze" : "snooze",
 				},
 				{
-					label: "$(plug) Check Ollama Connection",
-					description: `Ping ${config.ollamaUrl}`,
-					action: "checkOllama",
+					label: `$(plug) Check ${backendLabel} Connection`,
+					description: `Ping ${config.backendUrl}`,
+					action: "checkBackend",
 				},
 			];
 
@@ -115,12 +117,12 @@ export function registerStatusBarCommands(
 					case "resumeSnooze":
 						await handleResumeSnooze();
 						break;
-					case "checkOllama":
+					case "checkBackend":
 						if (ollamaServer) {
 							const ok = await ollamaServer.ensureReachable();
 							if (ok) {
 								vscode.window.showInformationMessage(
-									`Ollama reachable at ${config.ollamaUrl}.`,
+									`${backendLabel} reachable at ${config.backendUrl}.`,
 								);
 							}
 						}

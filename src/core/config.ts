@@ -2,16 +2,20 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 
 import {
+	DEFAULT_BACKEND,
 	DEFAULT_BROAD_AFTER,
 	DEFAULT_BROAD_BEFORE,
 	DEFAULT_COMPLETION_TIMEOUT_MS,
 	DEFAULT_DIAG_RADIUS,
 	DEFAULT_KEEP_ALIVE,
+	DEFAULT_LLAMA_SERVER_URL,
 	DEFAULT_MAX_CONTEXT_FILES,
 	DEFAULT_NUM_CTX,
 	DEFAULT_OLLAMA_URL,
 	MODEL_NAME,
 } from "~/core/constants.ts";
+
+export type Backend = "ollama" | "llama-server";
 
 const SWEEP_CONFIG_SECTION = "sweep";
 
@@ -39,8 +43,23 @@ export class SweepConfig {
 		return this.config.get<number>("autocompleteSnoozeUntil", 0);
 	}
 
+	get backend(): Backend {
+		const value = this.config.get<string>("backend", DEFAULT_BACKEND);
+		return value === "llama-server" ? "llama-server" : "ollama";
+	}
+
 	get ollamaUrl(): string {
 		return this.config.get<string>("ollamaUrl", DEFAULT_OLLAMA_URL);
+	}
+
+	get llamaServerUrl(): string {
+		return this.config.get<string>("llamaServerUrl", DEFAULT_LLAMA_SERVER_URL);
+	}
+
+	get backendUrl(): string {
+		return this.backend === "llama-server"
+			? this.llamaServerUrl
+			: this.ollamaUrl;
 	}
 
 	get modelName(): string {

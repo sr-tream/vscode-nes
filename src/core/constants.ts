@@ -4,7 +4,9 @@ export const STOP_TOKENS = ["<|file_sep|>", "<|endoftext|>"];
 
 // Default configuration
 export const DEFAULT_MAX_CONTEXT_FILES = 5;
+export const DEFAULT_BACKEND = "ollama";
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
+export const DEFAULT_LLAMA_SERVER_URL = "http://localhost:8080";
 // Sweep's GGUF advertises 32k natively. The full sweep prompt (broad file
 // context + retrieval + diagnostics + diff history + original/current/
 // updated windows) routinely runs 15–20k tokens for any non-trivial file —

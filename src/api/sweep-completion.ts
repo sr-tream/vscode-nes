@@ -9,14 +9,14 @@
 // there. We trim common-prefix and common-suffix lines so the returned
 // edit covers only the lines that actually differ.
 
-import type { OllamaCompletionResult } from "./ollama-client.ts";
+import type { CompletionResult } from "./ollama-client.ts";
 import type { AutocompleteResponse } from "./schemas.ts";
 import type { SweepPrompt } from "./sweep-prompt.ts";
 
 const STOP_MARKERS = ["<|file_sep|>", "<|endoftext|>"];
 
 export function buildAutocompleteResponse(
-	completion: OllamaCompletionResult,
+	completion: CompletionResult,
 	prompt: SweepPrompt,
 	autocompleteId: string,
 ): AutocompleteResponse | null {
