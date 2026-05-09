@@ -172,26 +172,35 @@ function trimCommonEnds(
 	oldLines: string[],
 	newLines: string[],
 ): TrimmedDiff | null {
+	// splitLines on a file ending with '\n' produces a phantom trailing ""
+	// that has no counterpart in the model output (text is right-trimmed),
+	// so suffix-match would fail at the last comparison and the diff would
+	// blow up to span the whole window. Drop trailing empties from both
+	// sides before aligning.
+	let oldEnd = oldLines.length;
+	while (oldEnd > 0 && oldLines[oldEnd - 1] === "") oldEnd--;
+	let newEnd = newLines.length;
+	while (newEnd > 0 && newLines[newEnd - 1] === "") newEnd--;
+
 	let skipPrefix = 0;
-	const minLen = Math.min(oldLines.length, newLines.length);
+	const minLen = Math.min(oldEnd, newEnd);
 	while (skipPrefix < minLen && oldLines[skipPrefix] === newLines[skipPrefix]) {
 		skipPrefix++;
 	}
 
 	let skipSuffix = 0;
-	const remainingOld = oldLines.length - skipPrefix;
-	const remainingNew = newLines.length - skipPrefix;
+	const remainingOld = oldEnd - skipPrefix;
+	const remainingNew = newEnd - skipPrefix;
 	const maxSuffix = Math.min(remainingOld, remainingNew);
 	while (
 		skipSuffix < maxSuffix &&
-		oldLines[oldLines.length - 1 - skipSuffix] ===
-			newLines[newLines.length - 1 - skipSuffix]
+		oldLines[oldEnd - 1 - skipSuffix] === newLines[newEnd - 1 - skipSuffix]
 	) {
 		skipSuffix++;
 	}
 
-	const oldMiddle = oldLines.slice(skipPrefix, oldLines.length - skipSuffix);
-	const newMiddle = newLines.slice(skipPrefix, newLines.length - skipSuffix);
+	const oldMiddle = oldLines.slice(skipPrefix, oldEnd - skipSuffix);
+	const newMiddle = newLines.slice(skipPrefix, newEnd - skipSuffix);
 	if (oldMiddle.length === 0 && newMiddle.length === 0) return null;
 	return { skipPrefix, oldMiddle, newMiddle };
 }
