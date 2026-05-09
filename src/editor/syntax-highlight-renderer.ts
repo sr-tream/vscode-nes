@@ -184,12 +184,7 @@ function discoverActiveTheme(): ThemeJson | null {
 				const themePath = path.join(ext.extensionPath, themeEntry.path);
 				const result = resolveThemeFile(themePath);
 				if (result) {
-					logger.info(
-						"Discovered active theme:",
-						themeSetting,
-						"from",
-						ext.id,
-					);
+					logger.info("Discovered active theme:", themeSetting, "from", ext.id);
 					return result;
 				}
 			}
@@ -536,7 +531,7 @@ let svgCacheDir: string | null = null;
 
 function getSvgCacheDir(): string {
 	if (!svgCacheDir) {
-		svgCacheDir = path.join(os.tmpdir(), "sweep-nes-svg-cache");
+		svgCacheDir = path.join(os.tmpdir(), "nesweep-svg-cache");
 		if (!fs.existsSync(svgCacheDir)) {
 			fs.mkdirSync(svgCacheDir, { recursive: true });
 		}

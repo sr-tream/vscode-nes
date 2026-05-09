@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import { config } from "~/core/config";
-import type { OllamaServer } from "~/services/ollama-server.ts";
+import type { CompletionServer } from "~/services/completion-server.ts";
 
 export class SweepStatusBar implements vscode.Disposable {
 	private statusBarItem: vscode.StatusBarItem;
@@ -33,7 +33,7 @@ export class SweepStatusBar implements vscode.Disposable {
 		const isEnabled = config.enabled;
 		const isSnoozed = config.isAutocompleteSnoozed();
 
-		this.statusBarItem.text = "$(sweep-icon) Sweep";
+		this.statusBarItem.text = "$(sweep-icon) NESweep";
 		this.statusBarItem.tooltip = this.buildTooltip(isEnabled, isSnoozed);
 
 		if (!isEnabled || isSnoozed) {
@@ -51,7 +51,7 @@ export class SweepStatusBar implements vscode.Disposable {
 		const snoozeLine = isSnoozed
 			? `Snoozed Until: ${formatSnoozeTime(snoozeUntil)}`
 			: "Snoozed: Off";
-		return `Sweep Next Edit\nStatus: ${status}\n${snoozeLine}\n\nClick to open menu`;
+		return `NESweep\nStatus: ${status}\n${snoozeLine}\n\nClick to open menu`;
 	}
 
 	dispose(): void {
@@ -64,7 +64,7 @@ export class SweepStatusBar implements vscode.Disposable {
 
 export function registerStatusBarCommands(
 	_context: vscode.ExtensionContext,
-	ollamaServer?: OllamaServer,
+	completionServer?: CompletionServer,
 ): vscode.Disposable[] {
 	const disposables: vscode.Disposable[] = [];
 
@@ -77,8 +77,6 @@ export function registerStatusBarCommands(
 				action: string;
 			}
 
-			const backendLabel =
-				config.backend === "llama-server" ? "llama-server" : "Ollama";
 			const items: MenuItem[] = [
 				{
 					label: `$(${isEnabled ? "check" : "circle-outline"}) Autocomplete`,
@@ -95,15 +93,15 @@ export function registerStatusBarCommands(
 					action: isSnoozed ? "resumeSnooze" : "snooze",
 				},
 				{
-					label: `$(plug) Check ${backendLabel} Connection`,
-					description: `Ping ${config.backendUrl}`,
+					label: "$(plug) Check Server Connection",
+					description: `Ping ${config.serverUrl}`,
 					action: "checkBackend",
 				},
 			];
 
 			const selection = await vscode.window.showQuickPick(items, {
-				placeHolder: "Sweep Settings",
-				title: "Sweep AI",
+				placeHolder: "NESweep Settings",
+				title: "NESweep",
 			});
 
 			if (selection) {
@@ -118,11 +116,11 @@ export function registerStatusBarCommands(
 						await handleResumeSnooze();
 						break;
 					case "checkBackend":
-						if (ollamaServer) {
-							const ok = await ollamaServer.ensureReachable();
+						if (completionServer) {
+							const ok = await completionServer.ensureReachable();
 							if (ok) {
 								vscode.window.showInformationMessage(
-									`${backendLabel} reachable at ${config.backendUrl}.`,
+									`NESweep server reachable at ${config.serverUrl}.`,
 								);
 							}
 						}
@@ -150,7 +148,7 @@ export function registerStatusBarCommands(
 			}
 
 			vscode.window.showInformationMessage(
-				`Sweep autocomplete ${!current ? "enabled" : "disabled"}`,
+				`NESweep autocomplete ${!current ? "enabled" : "disabled"}`,
 			);
 		}),
 	);
@@ -175,7 +173,7 @@ async function handleSnooze(): Promise<void> {
 			label: option.label,
 			description: `Pause autocomplete for ${option.label}`,
 		})),
-		{ title: "Snooze Sweep Autocomplete", placeHolder: "Choose duration" },
+		{ title: "Snooze NESweep Autocomplete", placeHolder: "Choose duration" },
 	);
 
 	if (!selection) return;
@@ -190,11 +188,11 @@ async function handleSnooze(): Promise<void> {
 	);
 	await vscode.commands.executeCommand("editor.action.inlineSuggest.hide");
 	vscode.window.showInformationMessage(
-		`Sweep autocomplete snoozed until ${formatSnoozeTime(until)}.`,
+		`NESweep autocomplete snoozed until ${formatSnoozeTime(until)}.`,
 	);
 }
 
 async function handleResumeSnooze(): Promise<void> {
 	await config.setAutocompleteSnoozeUntil(0, vscode.ConfigurationTarget.Global);
-	vscode.window.showInformationMessage("Sweep autocomplete resumed.");
+	vscode.window.showInformationMessage("NESweep autocomplete resumed.");
 }

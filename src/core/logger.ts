@@ -1,11 +1,11 @@
-// Routes Sweep diagnostics through a vscode.LogOutputChannel.
+// Routes NESweep diagnostics through a vscode.LogOutputChannel.
 //
 // The channel:
-//   - shows up in the Output panel as "Sweep"
+//   - shows up in the Output panel as "NESweep"
 //   - is written to disk by VS Code at
-//       <userData>/logs/<session>/window<N>/exthost/SweepAI.sweep-nes/Sweep.log
+//       <userData>/logs/<session>/window<N>/exthost/sr-tream.nesweep/NESweep.log
 //   - honours per-channel log level (Command Palette →
-//       "Developer: Set Log Level..." → Sweep) which gates trace/debug/info.
+//       "Developer: Set Log Level..." → NESweep) which gates trace/debug/info.
 //
 // Levels we use:
 //   error  — exceptions and failed I/O
@@ -20,7 +20,7 @@ let channel: vscode.LogOutputChannel | undefined;
 
 export function initLogger(): vscode.LogOutputChannel {
 	if (!channel) {
-		channel = vscode.window.createOutputChannel("Sweep", { log: true });
+		channel = vscode.window.createOutputChannel("NESweep", { log: true });
 	}
 	return channel;
 }

@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { config } from "~/core/config.ts";
 import { MAX_TOKENS, STOP_TOKENS, TEMPERATURE } from "~/core/constants.ts";
 import { logger } from "~/core/logger.ts";
-import type { OllamaServer } from "~/services/ollama-server.ts";
+import type { CompletionServer } from "~/services/completion-server.ts";
 import { toUnixPath } from "~/utils/path.ts";
 import {
 	isFileTooLarge,
@@ -55,10 +55,10 @@ function retrievalChunkLines(): number {
 }
 
 export class ApiClient {
-	private server: OllamaServer;
+	private server: CompletionServer;
 	private idCounter = 0;
 
-	constructor(server: OllamaServer) {
+	constructor(server: CompletionServer) {
 		this.server = server;
 	}
 
@@ -91,7 +91,7 @@ export class ApiClient {
 
 		const reqStarted = Date.now();
 		logger.info(
-			`→ /api/generate model=${config.modelName} num_ctx=${config.numCtx} num_predict=${MAX_TOKENS} prompt_chars=${prompt.prompt.length}`,
+			`→ /v1/completions model=${config.modelName} max_tokens=${MAX_TOKENS} prompt_chars=${prompt.prompt.length}`,
 		);
 		try {
 			const completion = await this.server.getClient().complete(
@@ -101,8 +101,6 @@ export class ApiClient {
 					temperature: TEMPERATURE,
 					maxTokens: MAX_TOKENS,
 					stop: STOP_TOKENS,
-					numCtx: config.numCtx,
-					keepAlive: config.keepAlive,
 					timeoutMs: config.completionTimeoutMs,
 				},
 				signal,
@@ -110,9 +108,9 @@ export class ApiClient {
 			this.server.reportSuccess();
 			const elapsed = ((Date.now() - reqStarted) / 1000).toFixed(2);
 			logger.info(
-				`← /api/generate ${elapsed}s prompt_eval=${completion.promptEvalCount ?? "?"} eval=${completion.evalCount ?? "?"} finish=${completion.finishReason} response_chars=${completion.text.length}`,
+				`← /v1/completions ${elapsed}s prompt_eval=${completion.promptEvalCount ?? "?"} eval=${completion.evalCount ?? "?"} finish=${completion.finishReason} response_chars=${completion.text.length}`,
 			);
-			logger.trace("← /api/generate raw response:", completion.text);
+			logger.trace("← /v1/completions raw response:", completion.text);
 
 			const id = `sweep-${Date.now()}-${++this.idCounter}`;
 			const response = buildAutocompleteResponse(completion, prompt, id);
@@ -146,11 +144,11 @@ export class ApiClient {
 		} catch (error) {
 			const elapsed = ((Date.now() - reqStarted) / 1000).toFixed(2);
 			if ((error as Error).name === "AbortError") {
-				logger.debug(`← /api/generate aborted after ${elapsed}s`);
+				logger.debug(`← /v1/completions aborted after ${elapsed}s`);
 				return null;
 			}
 			logger.error(
-				`← /api/generate failed after ${elapsed}s:`,
+				`← /v1/completions failed after ${elapsed}s:`,
 				(error as Error).message,
 			);
 			this.server.reportFailure();
@@ -467,9 +465,9 @@ export class ApiClient {
 
 	getDebugInfo(): string {
 		const extensionVersion =
-			vscode.extensions.getExtension("SweepAI.sweep-nes")?.packageJSON
+			vscode.extensions.getExtension("sr-tream.nesweep")?.packageJSON
 				?.version ?? "unknown";
-		return `VSCode (${vscode.version}) - OS: ${os.platform()} ${os.arch()} - Sweep v${extensionVersion}`;
+		return `VSCode (${vscode.version}) - OS: ${os.platform()} ${os.arch()} - NESweep v${extensionVersion}`;
 	}
 
 	private getRepoName(document: vscode.TextDocument): string {

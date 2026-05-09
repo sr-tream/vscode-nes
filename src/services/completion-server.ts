@@ -1,22 +1,17 @@
 import * as vscode from "vscode";
-import { LlamaServerClient } from "~/api/llama-server-client.ts";
-import type { CompletionClient } from "~/api/ollama-client.ts";
-import { OllamaClient } from "~/api/ollama-client.ts";
+import { CompletionClient } from "~/api/completion-client.ts";
 import { config } from "~/core/config.ts";
 
 const MAX_CONSECUTIVE_FAILURES = 3;
 const FAILURE_COOLDOWN_MS = 60_000;
 
-export class OllamaServer implements vscode.Disposable {
+export class CompletionServer implements vscode.Disposable {
 	private consecutiveFailures = 0;
 	private lastWarningAt = 0;
 	private warned = false;
 
 	getClient(): CompletionClient {
-		if (config.backend === "llama-server") {
-			return new LlamaServerClient(config.llamaServerUrl);
-		}
-		return new OllamaClient(config.ollamaUrl);
+		return new CompletionClient(config.serverUrl);
 	}
 
 	async ensureReachable(): Promise<boolean> {
@@ -43,14 +38,11 @@ export class OllamaServer implements vscode.Disposable {
 		if (this.warned && now - this.lastWarningAt < FAILURE_COOLDOWN_MS) return;
 		this.warned = true;
 		this.lastWarningAt = now;
-		const message =
-			config.backend === "llama-server"
-				? `Sweep: llama-server is not reachable at ${config.llamaServerUrl}. ` +
-					"Start llama-server with the sweep GGUF loaded."
-				: `Sweep: Ollama is not reachable at ${config.ollamaUrl}. ` +
-					"Start Ollama and pull the sweep model: " +
-					"`ollama pull hf.co/sweepai/sweep-next-edit-1.5b`.";
-		vscode.window.showWarningMessage(message);
+		vscode.window.showWarningMessage(
+			`NESweep: completion server is not reachable at ${config.serverUrl}. ` +
+				"Start an OpenAI-compatible /v1/completions server (e.g. llama-server) " +
+				"with the sweep model loaded.",
+		);
 	}
 
 	dispose(): void {}

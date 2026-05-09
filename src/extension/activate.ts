@@ -12,23 +12,23 @@ import {
 	registerStatusBarCommands,
 	SweepStatusBar,
 } from "~/extension/status-bar.ts";
-import { OllamaServer } from "~/services/ollama-server.ts";
+import { CompletionServer } from "~/services/completion-server.ts";
 import { DocumentTracker } from "~/telemetry/document-tracker.ts";
 
 let tracker: DocumentTracker;
 let jumpEditManager: JumpEditManager;
 let provider: InlineEditProvider;
 let statusBar: SweepStatusBar;
-let ollamaServer: OllamaServer;
+let completionServer: CompletionServer;
 
 export function activate(context: vscode.ExtensionContext) {
 	const logChannel = initLogger();
-	logger.info("Sweep activated");
+	logger.info("NESweep activated");
 	initSyntaxHighlighter();
 
 	tracker = new DocumentTracker();
-	ollamaServer = new OllamaServer();
-	const apiClient = new ApiClient(ollamaServer);
+	completionServer = new CompletionServer();
+	const apiClient = new ApiClient(completionServer);
 	jumpEditManager = new JumpEditManager();
 	provider = new InlineEditProvider(tracker, jumpEditManager, apiClient);
 	const refreshTheme = () => {
@@ -76,7 +76,10 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
 	statusBar = new SweepStatusBar(context);
-	const statusBarCommands = registerStatusBarCommands(context, ollamaServer);
+	const statusBarCommands = registerStatusBarCommands(
+		context,
+		completionServer,
+	);
 
 	const changeListener = vscode.workspace.onDidChangeTextDocument((event) => {
 		if (event.document === vscode.window.activeTextEditor?.document) {
@@ -148,15 +151,15 @@ export function activate(context: vscode.ExtensionContext) {
 		tracker,
 		jumpEditManager,
 		statusBar,
-		ollamaServer,
+		completionServer,
 		logChannel,
 		...statusBarCommands,
 	);
 
-	// Probe Ollama once at startup so the user gets an early warning if the
-	// daemon is down or the URL is wrong; the actual model load is deferred
-	// to the first completion.
-	void ollamaServer.ensureReachable();
+	// Probe the completion server once at startup so the user gets an early
+	// warning if it's down or the URL is wrong; the actual model load is
+	// deferred to the first completion.
+	void completionServer.ensureReachable();
 }
 
 export function deactivate() {

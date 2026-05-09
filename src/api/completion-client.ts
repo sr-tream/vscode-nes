@@ -1,17 +1,8 @@
-// Ollama client. Talks to /api/generate, NOT /v1/completions:
-// Ollama's OpenAI-compat layer silently drops `options.num_ctx` and the
-// top-level `keep_alive`, so the model loads with the host default
-// (often 32k via OLLAMA_CONTEXT_LENGTH) and a 4-minute idle timer
-// regardless of what we send. The native /api/generate endpoint honours
-// both. Field mapping:
-//   max_tokens   → options.num_predict
-//   temperature  → options.temperature
-//   stop         → options.stop
-//   num_ctx      → options.num_ctx
-//   keep_alive   → top-level keep_alive
-//
-// We also surface prompt_eval_count / eval_count from the final response
-// so it's easy to confirm a prompt actually fits inside num_ctx.
+// OpenAI-compatible /v1/completions client (llama.cpp's llama-server, vLLM,
+// any compat shim). Context size and idle eviction are server-side concerns
+// (e.g. llama-server's --ctx-size flag), so this request shape carries
+// neither. usage.prompt_tokens / completion_tokens are surfaced as
+// promptEvalCount / evalCount for log parity.
 
 import * as http from "node:http";
 import * as https from "node:https";
@@ -22,8 +13,6 @@ export interface CompletionRequest {
 	temperature: number;
 	maxTokens: number;
 	stop: string[];
-	numCtx: number;
-	keepAlive: string;
 	timeoutMs: number;
 }
 
@@ -34,48 +23,35 @@ export interface CompletionResult {
 	evalCount?: number;
 }
 
-export interface CompletionClient {
-	complete(
-		req: CompletionRequest,
-		signal?: AbortSignal,
-	): Promise<CompletionResult>;
-	ping(timeoutMs?: number): Promise<boolean>;
+interface OpenAICompletionResponse {
+	choices?: Array<{
+		text?: string;
+		finish_reason?: string;
+	}>;
+	usage?: {
+		prompt_tokens?: number;
+		completion_tokens?: number;
+	};
 }
 
-interface OllamaGenerateResponse {
-	response?: string;
-	done?: boolean;
-	done_reason?: string;
-	prompt_eval_count?: number;
-	eval_count?: number;
-}
-
-export class OllamaClient implements CompletionClient {
+export class CompletionClient {
 	constructor(private readonly baseUrl: string) {}
 
 	async complete(
 		req: CompletionRequest,
 		signal?: AbortSignal,
 	): Promise<CompletionResult> {
-		const options: Record<string, unknown> = {
-			temperature: req.temperature,
-			num_predict: req.maxTokens,
-			stop: req.stop,
-		};
-		// biome-ignore lint/complexity/useLiteralKeys: tsgo requires bracket notation for index signatures
-		if (req.numCtx > 0) options["num_ctx"] = req.numCtx;
-
-		const body: Record<string, unknown> = {
+		const body = {
 			model: req.model,
 			prompt: req.prompt,
+			temperature: req.temperature,
+			max_tokens: req.maxTokens,
+			stop: req.stop,
 			stream: false,
-			options,
 		};
-		// biome-ignore lint/complexity/useLiteralKeys: tsgo requires bracket notation for index signatures
-		if (req.keepAlive !== "") body["keep_alive"] = req.keepAlive;
 
 		const payload = JSON.stringify(body);
-		const url = new URL("/api/generate", this.baseUrl);
+		const url = new URL("/v1/completions", this.baseUrl);
 		const transport = url.protocol === "https:" ? https : http;
 		const port = url.port || (url.protocol === "https:" ? 443 : 80);
 
@@ -109,39 +85,44 @@ export class OllamaClient implements CompletionClient {
 					if (res.statusCode !== 200) {
 						finish(() =>
 							reject(
-								new Error(`Ollama request failed (${res.statusCode}): ${data}`),
+								new Error(
+									`Completion request failed (${res.statusCode}): ${data}`,
+								),
 							),
 						);
 						return;
 					}
 					try {
-						const parsed = JSON.parse(data) as OllamaGenerateResponse;
+						const parsed = JSON.parse(data) as OpenAICompletionResponse;
+						const choice = parsed.choices?.[0];
 						const result: CompletionResult = {
-							text: parsed.response ?? "",
-							finishReason: parsed.done_reason ?? "stop",
+							text: choice?.text ?? "",
+							finishReason: choice?.finish_reason ?? "stop",
 						};
-						if (parsed.prompt_eval_count !== undefined) {
-							result.promptEvalCount = parsed.prompt_eval_count;
+						if (parsed.usage?.prompt_tokens !== undefined) {
+							result.promptEvalCount = parsed.usage.prompt_tokens;
 						}
-						if (parsed.eval_count !== undefined) {
-							result.evalCount = parsed.eval_count;
+						if (parsed.usage?.completion_tokens !== undefined) {
+							result.evalCount = parsed.usage.completion_tokens;
 						}
 						finish(() => resolve(result));
 					} catch {
-						finish(() => reject(new Error("Failed to parse Ollama response")));
+						finish(() =>
+							reject(new Error("Failed to parse completion response")),
+						);
 					}
 				});
 			});
 
 			const onError = (error: Error) => {
 				finish(() =>
-					reject(new Error(`Ollama request error: ${error.message}`)),
+					reject(new Error(`Completion request error: ${error.message}`)),
 				);
 			};
 
 			const onTimeout = () => {
 				const err = new Error(
-					`Ollama request timed out after ${req.timeoutMs}ms`,
+					`Completion request timed out after ${req.timeoutMs}ms`,
 				);
 				httpReq.destroy();
 				finish(() => reject(err));
@@ -177,7 +158,7 @@ export class OllamaClient implements CompletionClient {
 
 	async ping(timeoutMs = 1500): Promise<boolean> {
 		return new Promise((resolve) => {
-			const url = new URL("/api/tags", this.baseUrl);
+			const url = new URL("/health", this.baseUrl);
 			const transport = url.protocol === "https:" ? https : http;
 			const port = url.port || (url.protocol === "https:" ? 443 : 80);
 			const req = transport.get(

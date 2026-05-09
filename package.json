@@ -1,12 +1,23 @@
 {
-	"name": "sweep-nes",
-	"displayName": "Sweep Next Edit",
+	"name": "nesweep",
+	"displayName": "NESweep autocompletion",
 	"description": "Next Edit Autocomplete using Sweep Model",
 	"version": "0.5.0",
-	"publisher": "SweepAI",
+	"publisher": "sr-tream",
+	"author": {
+		"name": "SR_team"
+	},
+	"contributors": [
+		{
+			"name": "SweepAI"
+		},
+		{
+			"name": "SR_team"
+		}
+	],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/sweepai/vscode-nes"
+		"url": "https://github.com/sr-tream/vscode-nes"
 	},
 	"icon": "assets/sweep-square.png",
 	"private": true,
@@ -23,7 +34,7 @@
 	"contributes": {
 		"icons": {
 			"sweep-icon": {
-				"description": "Sweep Icon",
+				"description": "NESweep Icon",
 				"default": {
 					"fontPath": "assets/sweep-icons.woff2",
 					"fontCharacter": "\\ea01"
@@ -33,27 +44,27 @@
 		"commands": [
 			{
 				"command": "sweep.triggerNextEdit",
-				"title": "Sweep: Trigger Next Edit Suggestion"
+				"title": "NESweep: Trigger Next Edit Suggestion"
 			},
 			{
 				"command": "sweep.toggleEnabled",
-				"title": "Sweep: Toggle Enabled"
+				"title": "NESweep: Toggle Enabled"
 			},
 			{
 				"command": "sweep.showMenu",
-				"title": "Sweep: Show Menu"
+				"title": "NESweep: Show Menu"
 			},
 			{
 				"command": "sweep.acceptJumpEdit",
-				"title": "Sweep: Accept Jump Edit"
+				"title": "NESweep: Accept Jump Edit"
 			},
 			{
 				"command": "sweep.acceptInlineEdit",
-				"title": "Sweep: Accept Inline Edit"
+				"title": "NESweep: Accept Inline Edit"
 			},
 			{
 				"command": "sweep.dismissJumpEdit",
-				"title": "Sweep: Dismiss Jump Edit"
+				"title": "NESweep: Dismiss Jump Edit"
 			}
 		],
 		"keybindings": [
@@ -94,13 +105,13 @@
 			}
 		],
 		"configuration": {
-			"title": "Sweep Next Edit",
+			"title": "NESweep",
 			"properties": {
 				"sweep.enabled": {
 					"type": "boolean",
 					"default": true,
 					"scope": "window",
-					"description": "Enable or disable Sweep Next Edit suggestions"
+					"description": "Enable or disable NESweep suggestions"
 				},
 				"sweep.maxContextFiles": {
 					"type": "number",
@@ -128,41 +139,20 @@
 					"default": 0,
 					"description": "Unix timestamp (ms) until which autocomplete is snoozed (0 disables snooze)"
 				},
-				"sweep.backend": {
-					"type": "string",
-					"enum": ["ollama", "llama-server"],
-					"default": "ollama",
-					"description": "Completion backend. 'ollama' uses /api/generate (honours num_ctx and keep_alive); 'llama-server' uses llama.cpp's OpenAI-compatible /v1/completions (context size is set at server startup via --ctx-size)."
-				},
-				"sweep.ollamaUrl": {
-					"type": "string",
-					"default": "http://localhost:11434",
-					"description": "Base URL of the Ollama server serving the sweep model"
-				},
-				"sweep.llamaServerUrl": {
+				"sweep.serverUrl": {
 					"type": "string",
 					"default": "http://localhost:8080",
-					"description": "Base URL of the llama.cpp server (llama-server) serving the sweep model"
+					"description": "Base URL of the OpenAI-compatible /v1/completions server (e.g. llama.cpp's llama-server) serving the sweep model."
 				},
 				"sweep.modelName": {
 					"type": "string",
 					"default": "sweepai/sweep-next-edit",
-					"description": "Ollama model name (alias) for the sweep next-edit model"
-				},
-				"sweep.numCtx": {
-					"type": "number",
-					"default": 32768,
-					"description": "Ollama options.num_ctx. Sweep's GGUF is 32k; pinning 8k truncates real prompts and yields delete-only completions."
-				},
-				"sweep.keepAlive": {
-					"type": "string",
-					"default": "30m",
-					"description": "How long Ollama keeps the model resident after the last request"
+					"description": "Model name sent in the request body (informational for single-model servers like llama-server)."
 				},
 				"sweep.completionTimeoutMs": {
 					"type": "number",
-					"default": 60000,
-					"description": "Per-request timeout for Ollama generations (ms). First load with num_ctx=32k can take 20–40s; warm calls finish in 2–8s."
+					"default": 10000,
+					"description": "Per-request timeout (ms)."
 				},
 				"sweep.diagRadius": {
 					"type": "number",

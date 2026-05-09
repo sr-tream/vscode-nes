@@ -1,11 +1,11 @@
-## Sweep Next Edit Suggestion for VSCode
+## NESweep — Next Edit autocompletion for VSCode
 
 <img width="563" height="327" alt="image" src="https://github.com/user-attachments/assets/9a06ed4a-bf9b-41e0-a21b-2178cb2c67b9" />
 
-## Fork changes
-
-This fork retargets the extension at a local Ollama running the sweep
-GGUF, removing the upstream `uvx sweep-autocomplete` Python child
+NESweep is a fork of [Sweep Next Edit](https://github.com/sweepai/vscode-nes)
+that retargets the extension at a local OpenAI-compatible
+`/v1/completions` server (e.g. llama.cpp's `llama-server`) running the
+sweep GGUF, removing the upstream `uvx sweep-autocomplete` Python child
 process (which falls back to CPU and is unusable for next-edit
 latency).
 
@@ -13,29 +13,28 @@ The sweep prompt format (broad context, retrieval, diagnostics, diff
 history, and the `original/current/updated` triplet with cursor marker
 and prefill) is ported from
 [cursortab.nvim](https://github.com/cursortab/cursortab.nvim)'s sweep
-provider. Everything else listed below is new in this fork.
+provider.
+
+## Features
 
 ### Backend
 
-- **Ollama, not the Python server.** The extension talks directly to
-  Ollama's native `/api/generate` endpoint. Ollama's OpenAI-compat
-  `/v1/completions` layer silently drops `options.num_ctx` and
-  `keep_alive`, so the model would load with the host default and a
-  4-minute idle timer regardless of what we sent. Field mapping:
-  `max_tokens → options.num_predict`,
-  `temperature/stop/num_ctx → options.*`, `keep_alive` top-level.
+- **OpenAI-compatible `/v1/completions`.** The extension posts to a
+  single endpoint with `model / prompt / temperature / max_tokens /
+  stop`. Context size and idle eviction are server-side concerns
+  (e.g. llama-server's `--ctx-size`), so neither `num_ctx` nor
+  `keep_alive` are sent.
 - **Sweep prompt built in TypeScript.** Broad file context, retrieval
   (open editors + LSP definitions/usages + clipboard), diagnostics,
   recent-changes diff history, and the `original/current/updated`
   triplet with cursor marker and prefill — all assembled directly from
   VSCode's API.
-- **Eval-count log.** Each completion logs `prompt_eval_count` /
-  `eval_count` to the Extension Host so it's easy to confirm prompts
-  fit inside `num_ctx`.
+- **Token-usage log.** Each completion logs `prompt_tokens` /
+  `completion_tokens` (from `usage`) to the Extension Host so it's
+  easy to confirm prompts fit inside the server's context window.
 
 ### Prompt shaping
 
-- **`num_ctx=32768` default.** Matches sweep's GGUF native context.
 - **`diagRadius=12`.** VSCode hands every diagnostic on the file to the
   prompt; this filter drops entries whose `Line N:` is more than ±N
   from the cursor.
@@ -78,27 +77,30 @@ provider. Everything else listed below is new in this fork.
   rules file picks up on the next keystroke without reloading the
   window.
 
-### Settings
+## Settings
 
 | Key | Default | Purpose |
 | --- | --- | --- |
-| `sweep.ollamaUrl` | `http://localhost:11434` | Ollama base URL |
-| `sweep.modelName` | `sweepai/sweep-next-edit` | Model alias |
-| `sweep.numCtx` | `32768` | `options.num_ctx` |
-| `sweep.keepAlive` | `30m` | Ollama idle-unload timer |
-| `sweep.completionTimeoutMs` | `60000` | Per-request timeout (ms) |
+| `sweep.serverUrl` | `http://localhost:8080` | `/v1/completions` base URL |
+| `sweep.modelName` | `sweepai/sweep-next-edit` | `model` field in the request body |
+| `sweep.completionTimeoutMs` | `10000` | Per-request timeout (ms) |
 | `sweep.diagRadius` | `12` | ±N lines around cursor; `0` disables |
 | `sweep.broadBefore` | `125` | Lines of broad context before cursor |
 | `sweep.broadAfter` | `75` | Lines of broad context after cursor |
 
-### Setup
+## Setup
+
+Run the sweep GGUF behind any OpenAI-compatible `/v1/completions`
+server. Example with llama.cpp:
 
 ```sh
-ollama pull sweepai/sweep-next-edit
+llama-server -hf sweepai/sweep-next-edit-1.5b-gguf --ctx-size 32768
 ```
 
-The model name matches `sweep.modelName`'s default, so no aliasing is
-needed.
+Sweep's GGUF advertises 32k natively; the full prompt (broad context +
+retrieval + diagnostics + diff history + edit window) routinely runs
+15–20k tokens for non-trivial files, so a smaller `--ctx-size`
+truncates real prompts.
 
 Build & install the extension:
 
@@ -106,5 +108,12 @@ Build & install the extension:
 bun install
 bun run build
 bunx @vscode/vsce package --no-dependencies --skip-license
-code --install-extension sweep-nes-*.vsix --force
+code --install-extension nesweep-*.vsix --force
 ```
+
+## Credits
+
+- Original [Sweep Next Edit](https://github.com/sweepai/vscode-nes)
+  by [SweepAI](https://github.com/sweepai).
+- Sweep prompt format ported from
+  [cursortab.nvim](https://github.com/cursortab/cursortab.nvim).

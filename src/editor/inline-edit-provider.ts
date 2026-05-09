@@ -267,13 +267,10 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 					normalizedResult,
 				);
 				if (classification.decision === "SUPPRESS") {
-					logger.debug(
-						"Suppressing suggestion after display classification",
-						{
-							reason: classification.reason,
-							id: normalizedResult.id,
-						},
-					);
+					logger.debug("Suppressing suggestion after display classification", {
+						reason: classification.reason,
+						id: normalizedResult.id,
+					});
 					continue;
 				}
 
@@ -295,12 +292,9 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 
 			if (renderMode === "JUMP" && jumpResult) {
 				this.clearSuggestionQueue("jump suggestion takes precedence");
-				logger.info(
-					"Edit classified as jump edit, showing decoration",
-					{
-						id: jumpResult.id,
-					},
-				);
+				logger.info("Edit classified as jump edit, showing decoration", {
+					id: jumpResult.id,
+				});
 				this.jumpEditManager.setPendingJumpEdit(document, jumpResult);
 				return undefined;
 			}
