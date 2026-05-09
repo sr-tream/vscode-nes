@@ -28,9 +28,25 @@ export interface ModelPrompt {
 	windowStartLine: number;
 	windowEndLine: number;
 	// Full file lines + byte offsets. The response parser indexes into these
-	// to produce a UTF-8 byte-offset edit.
+	// to produce a UTF-8 byte-offset edit. These reflect the *undecorated*
+	// document; if injectInlineDiagnostics added FIXME suffixes, those live
+	// in the rendered prompt only and are stripped from the response via
+	// injectedFixmeMessages.
 	lines: PromptLine[];
 	cursorLineByteOffsets: number[];
+	// Diagnostic messages whose inline `<commentPrefix> <marker>` form
+	// was injected into the rendered prompt. Non-empty signals the
+	// response parser to run the strip; the array's contents are
+	// retained for diagnostics/debug logging.
+	injectedFixmeMessages?: string[];
+	// Comment prefix used to wrap the injected FIXMEs ("//", "#", "--").
+	// Combined with inlineDiagnosticsMarker to form the strip anchor.
+	commentPrefix?: string;
+	// Marker phrase between the comment prefix and the diagnostic
+	// body — e.g. "BUG: LSP error here". The literal substring
+	// `<commentPrefix> <marker>` is the strip anchor, so this must
+	// match what the prompt builder emitted.
+	inlineDiagnosticsMarker?: string;
 }
 
 export function detectModelFormat(modelName: string): ModelFormat {

@@ -54,6 +54,12 @@ export function buildSweepResponse(
 	if (stripped === null) return null;
 
 	const newLines = stripped.split("\n");
+	stripInjectedFixmesFromLines(
+		newLines,
+		prompt.injectedFixmeMessages,
+		prompt.commentPrefix,
+		prompt.inlineDiagnosticsMarker,
+	);
 	const oldLines = prompt.lines
 		.slice(prompt.windowStartLine, prompt.windowEndLine)
 		.map((l) => l.content);
@@ -230,4 +236,40 @@ function extractCursorSentinel(text: string): {
 	if (idx === -1) return { text, cursorTargetOffset: undefined };
 	const cleaned = text.slice(0, idx) + text.slice(idx + SENTINEL.length);
 	return { text: cleaned, cursorTargetOffset: idx };
+}
+
+// Strip `<commentPrefix> <marker> …` suffixes the prompt builder
+// injected via injectInlineDiagnostics, so the line-diff sees the
+// model's output as if those comments had never been there. Mutates
+// the array in place.
+//
+// We anchor on the literal substring `<commentPrefix> <marker>` (e.g.
+// `// BUG: LSP error here`). The default marker is a phrase humans
+// essentially never write, so matching it pinpoints our injection
+// while leaving user-authored TODO/FIXME comments alone. Anchoring on
+// a static phrase rather than message text is robust to small models
+// paraphrasing the rest of the comment. No-op when no injection
+// happened or the prompt didn't carry the marker.
+export function stripInjectedFixmesFromLines(
+	lines: string[],
+	injectedFixmeMessages: string[] | undefined,
+	commentPrefix: string | undefined,
+	inlineDiagnosticsMarker: string | undefined,
+): void {
+	if (!injectedFixmeMessages || injectedFixmeMessages.length === 0) return;
+	if (!commentPrefix || !inlineDiagnosticsMarker) return;
+	const marker = `${commentPrefix} ${inlineDiagnosticsMarker}`;
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i] ?? "";
+		const idx = line.indexOf(marker);
+		if (idx < 0) continue;
+		// Trim trailing whitespace between the original line content and
+		// our injected marker (the injection shape was
+		// `${line} ${commentPrefix} ${marker} … - …`).
+		let cut = idx;
+		while (cut > 0 && (line[cut - 1] === " " || line[cut - 1] === "\t")) {
+			cut--;
+		}
+		lines[i] = line.slice(0, cut);
+	}
 }

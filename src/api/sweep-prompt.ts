@@ -2,7 +2,14 @@
 // server/provider/sweep/sweep.go so we can talk to Ollama directly without
 // the Python uvx server in between.
 //
-// Prompt layout (single completion text fed to /v1/completions):
+// Prompt layout (single completion text fed to /v1/completions). Section
+// order is tuned for prefix-cache friendliness: rules (session-stable)
+// first, then sections that vary per cursor move / keystroke / LSP update,
+// with diagnostics last so the model sees them adjacent to the edit
+// window.
+//
+//   <|file_sep|>context/rules                NESweep extension; cache-stable
+//   {rules body}
 //
 //   <|file_sep|>{path}                       broad file context (~300 lines)
 //   {file body around cursor}
@@ -12,14 +19,14 @@
 //   {snapshot body}
 //   ...
 //
-//   <|file_sep|>context/diagnostics          omitted if no diagnostics
-//   Line N: [source] message
-//
 //   <|file_sep|>{path}.diff                  diff history, if any
 //   original:
 //   {old}
 //   updated:
 //   {new}
+//
+//   <|file_sep|>context/diagnostics          omitted if no diagnostics
+//   Line N: [source] message
 //
 //   <|file_sep|>original/{path}:N:M          edit window, no marker
 //   {window lines}
@@ -32,6 +39,7 @@
 //
 // Stop tokens: <|file_sep|>, <|endoftext|>.
 
+import type { MessageTransform } from "~/core/config.ts";
 import type { ModelPrompt } from "./model-format.ts";
 import type {
 	AutocompleteRequest,
@@ -60,6 +68,29 @@ export interface SweepPromptOptions {
 	// the leading <|file_sep|>{path} header (i.e. as a top-of-file comment
 	// from the model's perspective). Empty string disables.
 	rules: string;
+	// Single-line comment prefix for the document's language ("//", "#",
+	// "--"). Used to format diagnostics as familiar TODO/FIXME comments
+	// the model has seen in training data instead of the bare
+	// `Line N: [severity] message` style upstream cursortab uses.
+	commentPrefix: string;
+	// Recommended for the small SweepAI checkpoints (0.5B and 1.5B) that
+	// ignore the structured diagnostics section. The 7B SweepAI default
+	// and the 8B Zeta2 SeedCoder don't need this. When true, append
+	// `<commentPrefix> <inlineDiagnosticsMarker> (code: <code>) -
+	// <message>` to every line within diagRadius that has an LSP
+	// diagnostic, in the rendered prompt only. Post-response strip
+	// anchors on the literal `<commentPrefix> <marker>` substring.
+	injectInlineDiagnostics: boolean;
+	// Marker phrase emitted between the comment prefix and the
+	// diagnostic body. Default `BUG: LSP error here` — should be a
+	// phrase a human would essentially never write so the strip can
+	// pinpoint our injections.
+	inlineDiagnosticsMarker: string;
+	// Additional regex transforms applied to each diagnostic message
+	// AFTER the built-in normalisations. Each entry is
+	// `{ pattern, replacement, flags? }` (JS regex; replacement may
+	// reference $1/$2 capture groups).
+	messageTransforms: MessageTransform[];
 }
 
 const DEFAULT_OPTIONS: SweepPromptOptions = {
@@ -67,6 +98,10 @@ const DEFAULT_OPTIONS: SweepPromptOptions = {
 	broadAfter: 75,
 	diagRadius: 12,
 	rules: "",
+	commentPrefix: "//",
+	injectInlineDiagnostics: false,
+	inlineDiagnosticsMarker: "BUG: LSP error here",
+	messageTransforms: [],
 };
 
 export function buildSweepPrompt(
@@ -88,10 +123,33 @@ export function buildSweepPrompt(
 		cursorLine + WINDOW_LINES_AFTER + 1,
 	);
 
+	// `lines` (and lineOffsets) reflect the actual document — the response
+	// builder uses them to map model output back to byte offsets, so they
+	// must NOT pick up FIXME suffixes. `promptLines` carries the rendered
+	// view: identical to lines unless inline injection is enabled.
+	const { promptLines, injectedFixmeMessages } = decorateLinesWithFixmes(
+		lines,
+		req.editor_diagnostics,
+		cursorLine,
+		opts,
+	);
+
 	let body = "";
 
+	// Rules go first so they form a cache-stable prompt prefix: they only
+	// change when the user edits .vscode/nes-{lang}.md, while every section
+	// after this varies per cursor move / keystroke / LSP update. Putting
+	// them ahead of the broad context maximises prefix-cache hits across
+	// requests. Splicing them INSIDE the broad-context section would still
+	// let the model treat them as code drift to "fix" (breaking the
+	// line-diff), but a leading sibling section is clearly named.
+	if (opts.rules !== "") {
+		body += `<|file_sep|>context/rules\n${opts.rules}`;
+		if (!opts.rules.endsWith("\n")) body += "\n";
+	}
+
 	const broad = buildBroadContext(
-		lines,
+		promptLines,
 		cursorLine,
 		opts.broadBefore,
 		opts.broadAfter,
@@ -106,32 +164,37 @@ export function buildSweepPrompt(
 	);
 	if (retrieval !== "") body += retrieval;
 
-	const diagnostics = formatDiagnosticsSection(
-		req.editor_diagnostics,
-		cursorLine + 1, // diagnostic lines in the schema are 1-indexed
-		opts.diagRadius,
-	);
-	if (diagnostics !== "") body += diagnostics;
-
 	const diffSection = formatDiffSection(req.recent_changes);
 	if (diffSection !== "") body += diffSection;
 
-	// Rules are emitted as a sibling context section right before the
-	// original/current/updated triplet, alongside the existing
-	// context/retrieval and context/diagnostics siblings. Splicing into
-	// the broad-context section above would let the model see them as
-	// part of the file body and treat the difference vs. the pristine
-	// code in the edit window as drift to "fix", breaking the line-diff.
-	if (opts.rules !== "") {
-		body += `<|file_sep|>context/rules\n${opts.rules}`;
+	// Diagnostics last among context sections — sits immediately before the
+	// original/current/updated triplet so the model attends to the latest
+	// LSP errors when generating the edit. Models routinely ignore
+	// diagnostics buried earlier in a long prompt. Skipped when inline
+	// injection is on: the per-line `BUG:` comments already surface the
+	// same diagnostics, so emitting the structured block too would
+	// duplicate the data and bloat the prompt.
+	if (!opts.injectInlineDiagnostics) {
+		const diagnostics = formatDiagnosticsSection(
+			req.editor_diagnostics,
+			cursorLine + 1, // diagnostic lines in the schema are 1-indexed
+			opts.diagRadius,
+			opts.commentPrefix,
+			lines,
+			lineOffsets,
+			opts.messageTransforms,
+		);
+		if (diagnostics !== "") body += diagnostics;
 	}
 
-	const windowText = lines.slice(windowStartLine, windowEndLine).join("\n");
+	const windowText = promptLines
+		.slice(windowStartLine, windowEndLine)
+		.join("\n");
 	const startLine1 = windowStartLine + 1;
 	const endLine1 = windowEndLine;
 
 	const relativeCursor = relativeCursorByte(
-		lines,
+		promptLines,
 		windowStartLine,
 		cursorLine,
 		cursorCol,
@@ -169,7 +232,65 @@ export function buildSweepPrompt(
 			content,
 		})),
 		cursorLineByteOffsets: lineOffsets,
+		...(injectedFixmeMessages.length > 0
+			? {
+					injectedFixmeMessages,
+					commentPrefix: opts.commentPrefix,
+					inlineDiagnosticsMarker: opts.inlineDiagnosticsMarker,
+				}
+			: {}),
 	};
+}
+
+// Append `<commentPrefix> FIXME: <message>` to lines that have a
+// diagnostic within `diagRadius` of the cursor. Returns a new lines
+// array; the caller keeps the original `lines` for response mapping.
+function decorateLinesWithFixmes(
+	lines: string[],
+	diagnostics: EditorDiagnostic[],
+	cursorLine: number,
+	opts: SweepPromptOptions,
+): { promptLines: string[]; injectedFixmeMessages: string[] } {
+	if (!opts.injectInlineDiagnostics || diagnostics.length === 0) {
+		return { promptLines: lines, injectedFixmeMessages: [] };
+	}
+	const cursorLine1 = cursorLine + 1;
+	// Emit shape: `<commentPrefix> <marker> (code: <code>) - <message>`.
+	// The default marker is `BUG: LSP error here`; users can override
+	// via the `sweep.inlineDiagnosticsMarker` setting if a different
+	// phrasing happens to attend better on their model.
+	type Entry = { message: string; code: string | undefined };
+	const byLine = new Map<number, Entry[]>();
+	for (const d of diagnostics) {
+		if (
+			opts.diagRadius > 0 &&
+			Math.abs(d.line - cursorLine1) > opts.diagRadius
+		) {
+			continue;
+		}
+		const arr = byLine.get(d.line - 1) ?? [];
+		arr.push({
+			message: normalizeDiagnosticMessage(d.message, opts.messageTransforms),
+			code: d.code,
+		});
+		byLine.set(d.line - 1, arr);
+	}
+	if (byLine.size === 0) {
+		return { promptLines: lines, injectedFixmeMessages: [] };
+	}
+	const messages: string[] = [];
+	const promptLines = lines.map((line, i) => {
+		const entries = byLine.get(i);
+		if (!entries) return line;
+		const joinedMsg = entries.map((e) => e.message).join(" / ");
+		const codes = entries
+			.map((e) => e.code)
+			.filter((c): c is string => Boolean(c));
+		const codePart = codes.length > 0 ? ` (code: ${codes.join(",")})` : "";
+		messages.push(joinedMsg);
+		return `${line} ${opts.commentPrefix} ${opts.inlineDiagnosticsMarker}${codePart} - ${joinedMsg}`;
+	});
+	return { promptLines, injectedFixmeMessages: messages };
 }
 
 export function splitLines(text: string): string[] {
@@ -249,6 +370,10 @@ function formatDiagnosticsSection(
 	diagnostics: EditorDiagnostic[],
 	cursorLine1: number,
 	radius: number,
+	commentPrefix: string,
+	lines: string[],
+	lineOffsets: number[],
+	messageTransforms: MessageTransform[],
 ): string {
 	if (diagnostics.length === 0) return "";
 	const filtered =
@@ -256,11 +381,99 @@ function formatDiagnosticsSection(
 			? diagnostics.filter((d) => Math.abs(d.line - cursorLine1) <= radius)
 			: diagnostics;
 	if (filtered.length === 0) return "";
-	let out = "<|file_sep|>context/diagnostics\n";
-	for (const d of filtered) {
-		out += `Line ${d.line}: [${d.severity}] ${d.message}\n`;
+	const body = renderDiagnosticsAsComments(
+		filtered,
+		commentPrefix,
+		lines,
+		lineOffsets,
+		messageTransforms,
+	);
+	return `<|file_sep|>context/diagnostics\n${body}`;
+}
+
+// Render diagnostics as a comment block in the document's language. Each
+// diagnostic produces a gcc/clang-style "[severity] line N:col: message"
+// header followed by the offending source line trimmed of indentation.
+// The model has seen this pattern in compiler output during pretraining,
+// so wrapping it in the file's comment syntax (so it reads as a TODO
+// block in the code) measurably increases attention to the diagnostic
+// when generating the edit.
+export function renderDiagnosticsAsComments(
+	diagnostics: EditorDiagnostic[],
+	commentPrefix: string,
+	lines: string[],
+	lineOffsets: number[],
+	messageTransforms: MessageTransform[] = [],
+): string {
+	let out = `${commentPrefix} FIXME: Fix these issues:\n`;
+	for (const d of diagnostics) {
+		const lineIdx = d.line - 1;
+		const lineStart = lineOffsets[lineIdx] ?? 0;
+		const col =
+			d.start_offset >= lineStart ? d.start_offset - lineStart + 1 : 1;
+		const msg = normalizeDiagnosticMessage(d.message, messageTransforms);
+		out += `${commentPrefix} [${d.severity}] line ${d.line}:${col}: ${msg}\n`;
+		const source = (lines[lineIdx] ?? "").trim();
+		if (source !== "") out += `${commentPrefix}   ${source}\n`;
 	}
 	return out;
+}
+
+// Rephrase LSP diagnostic messages into a more directive form so a small
+// model is more likely to act on them:
+//
+//   * "...; did you mean 'X'?"     →  "use 'X' instead (...)"
+//   * "(fix available)" suffix     →  stripped (IDE-internal noise)
+//   * "...; consider using 'X'"    →  "use 'X' instead (...)"
+//
+// User-supplied regex transforms are applied AFTER these built-ins so a
+// project can patch in linter-specific phrasings without losing the
+// defaults. Non-destructive on no-match: original description survives
+// in parens so the model still has the context.
+export function normalizeDiagnosticMessage(
+	message: string,
+	userTransforms: MessageTransform[] = [],
+): string {
+	let msg = message.trim();
+	// clangd / TS append "(fix available)" / "(fixes available)" when a
+	// quickfix exists. The model has no IDE to invoke; the suffix only
+	// telegraphs "ignore me, the IDE will handle it".
+	msg = msg.replace(/\s*\((?:fix|fixes) available\)\s*$/i, "").trim();
+
+	// Common directive-extraction patterns from clang/TypeScript/Rust.
+	// Each capture group #1 is the rest of the description, #2 is the
+	// suggested replacement.
+	const patterns = [
+		/^(.*?)[;,]?\s*did you mean ['"`]([^'"`]+)['"`]\??\s*$/i,
+		/^(.*?)[;,]?\s*consider using ['"`]([^'"`]+)['"`]\.?\s*$/i,
+		/^(.*?)[;,]?\s*replace with ['"`]([^'"`]+)['"`]\.?\s*$/i,
+	];
+	for (const re of patterns) {
+		const m = msg.match(re);
+		if (m) {
+			const rest = (m[1] ?? "").trim().replace(/[;,.]+$/, "");
+			const suggestion = m[2] ?? "";
+			msg =
+				rest === ""
+					? `use '${suggestion}' instead`
+					: `use '${suggestion}' instead (${rest})`;
+			break;
+		}
+	}
+
+	// Apply user-supplied transforms in declaration order. Invalid
+	// regexes are skipped silently so a single bad config entry doesn't
+	// break the whole pipeline.
+	for (const t of userTransforms) {
+		try {
+			const re = new RegExp(t.pattern, t.flags);
+			msg = msg.replace(re, t.replacement);
+		} catch {
+			// ignore malformed pattern
+		}
+	}
+
+	return msg;
 }
 
 function formatDiffSection(recentChanges: string): string {

@@ -31,6 +31,12 @@ export const EditorDiagnosticSchema = z.object({
 	severity: z.string(),
 	message: z.string(),
 	timestamp: z.number(),
+	// Linter-supplied diagnostic code, e.g. clangd's
+	// `clang(undeclared_var_use_suggest)` or TS's `2552`. Used as a stable
+	// marker in inline `// FIXME[NES, <code>]: <msg>` injections so the
+	// response stripper can find them even after the model paraphrases the
+	// message text.
+	code: z.string().optional(),
 });
 
 export const AutocompleteRequestSchema = z.object({

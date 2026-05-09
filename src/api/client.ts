@@ -16,7 +16,7 @@ import {
 	fuseAndDedupRetrievalSnippets,
 	truncateRetrievalChunk,
 } from "./retrieval-chunks.ts";
-import { loadWorkspaceRules } from "./rules.ts";
+import { getCommentPrefix, loadWorkspaceRules } from "./rules.ts";
 import {
 	type AutocompleteRequest,
 	AutocompleteRequestSchema,
@@ -87,23 +87,35 @@ export class ApiClient {
 
 		const format = detectModelFormat(config.modelName);
 		const rules = loadWorkspaceRules(input.document);
+		const commentPrefix = getCommentPrefix(input.document.languageId);
+		const inlineDiagnosticsMarker = config.inlineDiagnosticsMarker;
+		const messageTransforms = config.diagnosticsMessageTransforms;
 		const prompt: ModelPrompt =
 			format === "zeta2"
 				? buildZeta2Prompt(parsedRequest.data, {
 						diagRadius: config.diagRadius,
 						rules,
+						commentPrefix,
+						injectInlineDiagnostics: config.injectInlineDiagnostics,
+						inlineDiagnosticsMarker,
+						messageTransforms,
 					})
 				: buildSweepPrompt(parsedRequest.data, {
 						broadBefore: config.broadBefore,
 						broadAfter: config.broadAfter,
 						diagRadius: config.diagRadius,
 						rules,
+						commentPrefix,
+						injectInlineDiagnostics: config.injectInlineDiagnostics,
+						inlineDiagnosticsMarker,
+						messageTransforms,
 					});
 
 		const reqStarted = Date.now();
 		logger.info(
 			`→ /v1/completions format=${format} model=${config.modelName} max_tokens=${MAX_TOKENS} prompt_chars=${prompt.prompt.length}`,
 		);
+		logger.trace("→ /v1/completions raw prompt:", prompt.prompt);
 		try {
 			const completion = await this.server.getClient().complete(
 				{
@@ -203,11 +215,11 @@ export class ApiClient {
 			document,
 			position,
 			filePath,
-			diagnostics,
 		);
 		const editorDiagnostics = this.buildEditorDiagnostics(
 			document,
 			diagnostics,
+			position.line,
 		);
 
 		return {
@@ -280,7 +292,6 @@ export class ApiClient {
 		document: vscode.TextDocument,
 		position: vscode.Position,
 		currentFilePath: string,
-		diagnostics: vscode.Diagnostic[],
 	): Promise<FileChunk[]> {
 		const [definitionChunks, usageChunks, clipboardChunks] = await Promise.all([
 			this.buildDefinitionChunks(document, position),
@@ -288,12 +299,13 @@ export class ApiClient {
 			this.buildClipboardChunks(),
 		]);
 
-		const chunks = [
-			...this.buildDiagnosticsTextChunk(currentFilePath, diagnostics),
-			...clipboardChunks,
-			...usageChunks,
-			...definitionChunks,
-		]
+		// Diagnostics are emitted as a structured, distance-filtered section
+		// by the prompt builders (sweep-prompt's formatDiagnosticsSection,
+		// zeta2-prompt's formatDiagnosticsPseudoFile) using
+		// editor_diagnostics. We deliberately don't include them as a
+		// retrieval chunk too — that path was unfiltered (file-wide) and
+		// duplicated the same data in a less useful position in the prompt.
+		const chunks = [...clipboardChunks, ...usageChunks, ...definitionChunks]
 			.filter((chunk) => chunk.file_path !== currentFilePath)
 			.map((chunk) => truncateRetrievalChunk(chunk, retrievalChunkLines()))
 			.filter((chunk) => chunk.content.trim().length > 0);
@@ -301,43 +313,39 @@ export class ApiClient {
 		return fuseAndDedupRetrievalSnippets(chunks).slice(-MAX_RETRIEVAL_CHUNKS);
 	}
 
-	private buildDiagnosticsTextChunk(
-		filePath: string,
-		diagnostics: vscode.Diagnostic[],
-	): FileChunk[] {
-		if (diagnostics.length === 0) return [];
-
-		let content = "";
-		const limitedDiagnostics = diagnostics.slice(0, MAX_DIAGNOSTICS);
-		for (const d of limitedDiagnostics) {
-			const severity = this.formatSeverity(d.severity);
-			const line = d.range.start.line + 1;
-			const col = d.range.start.character + 1;
-			content += `${filePath}:${line}:${col}: ${severity}: ${d.message}\n`;
-		}
-
-		return [
-			{
-				file_path: "diagnostics",
-				start_line: 1,
-				end_line: limitedDiagnostics.length,
-				content,
-			},
-		];
-	}
-
 	private buildEditorDiagnostics(
 		document: vscode.TextDocument,
 		diagnostics: vscode.Diagnostic[],
+		cursorLine0: number,
 	): EditorDiagnostic[] {
-		return diagnostics.slice(0, MAX_DIAGNOSTICS).map((diagnostic) => ({
-			line: diagnostic.range.start.line + 1,
-			start_offset: document.offsetAt(diagnostic.range.start),
-			end_offset: document.offsetAt(diagnostic.range.end),
-			severity: this.formatSeverity(diagnostic.severity),
-			message: diagnostic.message,
-			timestamp: Date.now(),
-		}));
+		const mapped = diagnostics.map((diagnostic) => {
+			const code = extractDiagnosticCode(diagnostic.code);
+			return {
+				line: diagnostic.range.start.line + 1,
+				start_offset: document.offsetAt(diagnostic.range.start),
+				end_offset: document.offsetAt(diagnostic.range.end),
+				severity: this.formatSeverity(diagnostic.severity),
+				message: diagnostic.message,
+				timestamp: Date.now(),
+				...(code !== undefined ? { code } : {}),
+			};
+		});
+
+		// If the cursor line itself has an error-severity diagnostic, drop
+		// every diagnostic below the cursor. clangd / tsserver routinely
+		// emit a swarm of cascading errors ("expected ;", "undeclared
+		// identifier 'camera'") downstream of a single root-cause typo;
+		// they distract small models from the real fix and waste prompt
+		// budget. Above-cursor diagnostics are kept untouched (they may
+		// be unrelated real issues).
+		const cursorLine1 = cursorLine0 + 1;
+		const hasErrorOnCursorLine = mapped.some(
+			(d) => d.line === cursorLine1 && d.severity === "error",
+		);
+		const filtered = hasErrorOnCursorLine
+			? mapped.filter((d) => d.line <= cursorLine1)
+			: mapped;
+		return filtered.slice(0, MAX_DIAGNOSTICS);
 	}
 
 	private async buildClipboardChunks(): Promise<FileChunk[]> {
@@ -502,4 +510,18 @@ export class ApiClient {
 			vscode.workspace.getWorkspaceFolder(document.uri)?.name || "untitled"
 		);
 	}
+}
+
+function extractDiagnosticCode(
+	code: vscode.Diagnostic["code"],
+): string | undefined {
+	if (code === undefined || code === null) return undefined;
+	if (typeof code === "string") return code || undefined;
+	if (typeof code === "number") return String(code);
+	if (typeof code === "object" && "value" in code) {
+		const v = code.value;
+		if (typeof v === "string") return v || undefined;
+		if (typeof v === "number") return String(v);
+	}
+	return undefined;
 }

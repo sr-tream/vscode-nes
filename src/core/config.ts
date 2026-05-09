@@ -13,6 +13,12 @@ import {
 
 const SWEEP_CONFIG_SECTION = "sweep";
 
+export interface MessageTransform {
+	pattern: string;
+	replacement: string;
+	flags: string;
+}
+
 export class SweepConfig {
 	private get config(): vscode.WorkspaceConfiguration {
 		return vscode.workspace.getConfiguration(SWEEP_CONFIG_SECTION);
@@ -62,6 +68,50 @@ export class SweepConfig {
 
 	get broadAfter(): number {
 		return this.config.get<number>("broadAfter", DEFAULT_BROAD_AFTER);
+	}
+
+	// Recommended for the small SweepAI checkpoints (0.5B and 1.5B) that
+	// ignore the structured diagnostics section. 7B SweepAI default and
+	// 8B Zeta2 SeedCoder don't need it. Appends a `// <marker> (code:
+	// <code>) - <message>` comment next to every nearby diagnosed line
+	// in the rendered prompt; the response is then run through a strip
+	// that anchors on the literal `<commentPrefix> <marker>` substring.
+	get injectInlineDiagnostics(): boolean {
+		return this.config.get<boolean>("injectInlineDiagnostics", false);
+	}
+
+	// Marker text inserted between the language's comment prefix and the
+	// diagnostic message in the inline-injection format, e.g. for
+	// `// BUG: LSP error here (code: …) - <msg>` the marker is
+	// `BUG: LSP error here`. The literal `<commentPrefix> <marker>`
+	// substring is the strip anchor — pick something a human author
+	// would never type. Per-user/per-project tuning is useful because
+	// different small models seem to attend to different phrasings.
+	get inlineDiagnosticsMarker(): string {
+		return this.config.get<string>(
+			"inlineDiagnosticsMarker",
+			"BUG: LSP error here",
+		);
+	}
+
+	// Additional regex transforms applied to every diagnostic message
+	// (both the structured diagnostics section and the inline `BUG:`
+	// injection) AFTER the built-in normalisations (strip "(fix
+	// available)", rewrite "did you mean 'X'?" to "use 'X' instead",
+	// etc). Configured as an object so VS Code's settings UI renders a
+	// key/value table editor (the same one that powers
+	// editor.unicodeHighlight.allowedLocales). Key is the regex source,
+	// value is the replacement string (`$1`/`$2` for capture groups);
+	// flags are hardcoded to "i" (case-insensitive).
+	get diagnosticsMessageTransforms(): MessageTransform[] {
+		const raw = this.config.get<unknown>("diagnosticsMessageTransforms", {});
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+		const out: MessageTransform[] = [];
+		for (const [pattern, replacement] of Object.entries(raw)) {
+			if (typeof replacement !== "string") continue;
+			out.push({ pattern, replacement, flags: "i" });
+		}
+		return out;
 	}
 
 	isAutocompleteSnoozed(now = Date.now()): boolean {

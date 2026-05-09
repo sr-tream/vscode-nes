@@ -168,6 +168,30 @@
 					"type": "number",
 					"default": 75,
 					"description": "Lines of broad file context to keep after the cursor."
+				},
+				"sweep.injectInlineDiagnostics": {
+					"type": "boolean",
+					"default": false,
+					"description": "Recommended for the small SweepAI checkpoints (0.5B and 1.5B), which ignore the structured diagnostics section. The 7B SweepAI default and the 8B Zeta2 SeedCoder don't need this — leave it off for those. Appends `<commentPrefix> <inlineDiagnosticsMarker> (code: <code>) - <message>` to every nearby line that has an LSP diagnostic in the prompt sent to the model — inline placement next to the affected token gets the model to attend much more reliably. The fake comments are stripped from the model's response on accept (anchored on the literal `<commentPrefix> <inlineDiagnosticsMarker>` substring, so the strip survives the model paraphrasing the rest of the message)."
+				},
+				"sweep.inlineDiagnosticsMarker": {
+					"type": "string",
+					"default": "BUG: LSP error here",
+					"description": "Marker phrase emitted between the language's comment prefix and the diagnostic body — e.g. `// BUG: LSP error here (code: …) - <message>` for C/C++. Must be a phrase a human would essentially never type so the strip on accept can pinpoint our injections without touching user-authored TODO/FIXME comments. Different small models seem to attend to different phrasings; tune per model if needed."
+				},
+				"sweep.diagnosticsMessageTransforms": {
+					"type": "object",
+					"default": {
+						"^(.*?) is a magic number;?\\s*consider replacing it with a named constant\\.?$": "replace $1 with a named constant",
+						"^Included header (\\S+) is not used directly\\.?$": "remove unused #include of $1",
+						"^Variable ['\"`]([^'\"`]+)['\"`] is uninitialized when used here\\.?$": "initialise '$1' before use",
+						"^Implicit conversion loses integer precision: ['\"`]([^'\"`]+)['\"`] to ['\"`]([^'\"`]+)['\"`]\\.?$": "narrow $1 to $2 explicitly with a cast"
+					},
+					"description": "Additional regex transforms applied to every diagnostic message AFTER the built-in normalisations (strip `(fix available)`, rewrite `did you mean 'X'?` to `use 'X' instead`). Applied uniformly to BOTH the structured diagnostics section and the inline `BUG:` injection. Key is a JavaScript regex source, value is the replacement string (use `$1`/`$2` for capture groups). Flags are hardcoded to `i` (case-insensitive). Defaults cover common clang / clang-tidy patterns; add your own for other linters.",
+					"additionalProperties": {
+						"type": "string",
+						"description": "Replacement string ($1, $2, … for capture groups)"
+					}
 				}
 			}
 		}

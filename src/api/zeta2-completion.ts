@@ -12,6 +12,7 @@ import { logger } from "~/core/logger.ts";
 import type { CompletionResult } from "./completion-client.ts";
 import type { ModelPrompt } from "./model-format.ts";
 import type { AutocompleteResponse } from "./schemas.ts";
+import { stripInjectedFixmesFromLines } from "./sweep-completion.ts";
 import {
 	ZETA2_CURSOR_MARKER,
 	ZETA2_END_MARKER,
@@ -58,6 +59,12 @@ export function buildZeta2Response(
 	if (stripped === null) return null;
 
 	const newLines = stripped.split("\n");
+	stripInjectedFixmesFromLines(
+		newLines,
+		prompt.injectedFixmeMessages,
+		prompt.commentPrefix,
+		prompt.inlineDiagnosticsMarker,
+	);
 	const oldLines = prompt.lines
 		.slice(prompt.windowStartLine, prompt.windowEndLine)
 		.map((l) => l.content);

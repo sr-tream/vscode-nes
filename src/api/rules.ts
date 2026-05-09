@@ -60,6 +60,14 @@ interface CachedRules {
 
 const cache = new Map<string, CachedRules>();
 
+// Single-line comment prefix for the document's language. Falls back to
+// "//" — the most widely understood style — for unknown languages so
+// caller features (rule injection, diagnostics formatting) still work
+// instead of going silent.
+export function getCommentPrefix(languageId: string): string {
+	return COMMENT_PREFIXES[languageId] ?? "//";
+}
+
 export function loadWorkspaceRules(document: vscode.TextDocument): string {
 	const ws = vscode.workspace.getWorkspaceFolder(document.uri);
 	if (!ws) return "";
