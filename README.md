@@ -24,11 +24,18 @@ provider.
   stop`. Context size and idle eviction are server-side concerns
   (e.g. llama-server's `--ctx-size`), so neither `num_ctx` nor
   `keep_alive` are sent.
-- **Sweep prompt built in TypeScript.** Broad file context, retrieval
+- **Two prompt formats, picked by model name.** Names containing
+  `zeta2` / `zeta-2` / `seedcoder` use Zed's SeedCoder FIM layout
+  (`<[fim-suffix]>` … `<<<<<<< CURRENT` … `<[fim-middle]>`); anything
+  else uses the sweep `<|file_sep|>{path}` layout with the
+  `original/current/updated` triplet and `<|cursor|>` marker. Stop
+  tokens are switched accordingly (`>>>>>>> UPDATED` for Zeta2,
+  `<|file_sep|>` / `<|endoftext|>` for sweep).
+- **Prompt assembled in TypeScript.** Broad file context, retrieval
   (open editors + LSP definitions/usages + clipboard), diagnostics,
-  recent-changes diff history, and the `original/current/updated`
-  triplet with cursor marker and prefill — all assembled directly from
-  VSCode's API.
+  recent-changes diff history, and the format-specific edit window
+  with cursor marker — all built from VSCode's API, no Python child
+  process.
 - **Token-usage log.** Each completion logs `prompt_tokens` /
   `completion_tokens` (from `usage`) to the Extension Host so it's
   easy to confirm prompts fit inside the server's context window.
@@ -90,17 +97,26 @@ provider.
 
 ## Setup
 
-Run the sweep GGUF behind any OpenAI-compatible `/v1/completions`
-server. Example with llama.cpp:
+Run any supported edit-prediction GGUF behind an OpenAI-compatible
+`/v1/completions` server. Examples with llama.cpp:
 
 ```sh
+# Sweep next-edit (default)
 llama-server -hf sweepai/sweep-next-edit-1.5b-gguf --ctx-size 32768
+
+# Zeta2 (Zed's SeedCoder-8B edit-prediction model)
+llama-server -hf bartowski/zed-industries_zeta-2-GGUF! --ctx-size 16384
 ```
+
+Then point `sweep.modelName` at the right name — anything containing
+`zeta2` / `zeta-2` / `seedcoder` switches the extension to the Zeta2
+prompt format; the default keeps the sweep `<|file_sep|>` layout.
 
 Sweep's GGUF advertises 32k natively; the full prompt (broad context +
 retrieval + diagnostics + diff history + edit window) routinely runs
 15–20k tokens for non-trivial files, so a smaller `--ctx-size`
-truncates real prompts.
+truncates real prompts. Zeta2's editable region is much tighter
+(±15 lines around cursor), so its prompt is also smaller.
 
 Build & install the extension:
 

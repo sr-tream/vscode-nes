@@ -35,6 +35,20 @@ interface AcceptedInlineSuggestion {
 	completion: string;
 }
 
+// Build a SnippetString that places the final cursor ($0) at the model's
+// predicted post-edit position. Snippet metacharacters in the surrounding
+// text need to be escaped — `$`, `}` and `\` would otherwise be parsed as
+// snippet syntax.
+function toSnippetWithCursor(
+	completion: string,
+	cursorOffset: number,
+): vscode.SnippetString {
+	const escapeSnippet = (s: string) => s.replace(/[\\$}]/g, "\\$&");
+	const before = escapeSnippet(completion.slice(0, cursorOffset));
+	const after = escapeSnippet(completion.slice(cursorOffset));
+	return new vscode.SnippetString(`${before}$0${after}`);
+}
+
 export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 	private tracker: DocumentTracker;
 	private jumpEditManager: JumpEditManager;
@@ -296,6 +310,12 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 					id: jumpResult.id,
 				});
 				this.jumpEditManager.setPendingJumpEdit(document, jumpResult);
+				// VSCode keeps a previously-served InlineCompletionItem visible
+				// when our provider returns undefined; without this, a stale
+				// ghost-text suggestion (possibly from an older buggy build that
+				// embedded <|cursor|> in insertText) lingers on top of our jump
+				// decoration. Force-hide it so only the JUMP preview is visible.
+				void vscode.commands.executeCommand("editor.action.inlineSuggest.hide");
 				return undefined;
 			}
 
@@ -513,7 +533,11 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 			endIndex: result.endIndex,
 			completion: result.completion,
 		};
-		const item = new vscode.InlineCompletionItem(result.completion, editRange);
+		const insertText =
+			result.cursorTargetOffset !== undefined
+				? toSnippetWithCursor(result.completion, result.cursorTargetOffset)
+				: result.completion;
+		const item = new vscode.InlineCompletionItem(insertText, editRange);
 		item.command = {
 			title: "Accept Sweep Inline Edit",
 			command: "sweep.acceptInlineEdit",
@@ -813,6 +837,17 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 			endIndex: currentCursorOffset,
 			completion: extendedCompletion,
 		};
+		// userInsertedText was sliced off the front of the completion, so the
+		// cursor-target offset (if any) shifts left by the same amount. If it
+		// landed inside the consumed prefix it's no longer meaningful — drop it.
+		if (firstResult.cursorTargetOffset !== undefined) {
+			if (firstResult.cursorTargetOffset >= userInsertedText.length) {
+				adjustedFirst.cursorTargetOffset =
+					firstResult.cursorTargetOffset - userInsertedText.length;
+			} else {
+				delete adjustedFirst.cursorTargetOffset;
+			}
+		}
 		const adjustmentOffset = userInsertedText.length;
 		const adjustedRemainder = results.slice(1).map((result) => ({
 			...result,
@@ -1081,6 +1116,14 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 			endIndex: cursorOffset,
 			completion: trimmedCompletion,
 		};
+		if (result.cursorTargetOffset !== undefined) {
+			if (result.cursorTargetOffset >= prefixBeforeCursor.length) {
+				trimmedResult.cursorTargetOffset =
+					result.cursorTargetOffset - prefixBeforeCursor.length;
+			} else {
+				delete trimmedResult.cursorTargetOffset;
+			}
+		}
 		return this.trimSuffixOverlap(document, position, trimmedResult);
 	}
 
@@ -1122,7 +1165,18 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 		);
 		if (trimmedCompletion.length === 0) return null;
 
-		return { ...result, completion: trimmedCompletion };
+		const out: AutocompleteResult = {
+			...result,
+			completion: trimmedCompletion,
+		};
+		// Drop the cursor target if it landed inside the trimmed suffix.
+		if (
+			out.cursorTargetOffset !== undefined &&
+			out.cursorTargetOffset > trimmedCompletion.length
+		) {
+			delete out.cursorTargetOffset;
+		}
+		return out;
 	}
 
 	private isRequestStale(

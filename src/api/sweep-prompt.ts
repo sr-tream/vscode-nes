@@ -32,12 +32,15 @@
 //
 // Stop tokens: <|file_sep|>, <|endoftext|>.
 
+import type { ModelPrompt } from "./model-format.ts";
 import type {
 	AutocompleteRequest,
 	EditorDiagnostic,
 	FileChunk,
 	UserAction,
 } from "./schemas.ts";
+
+export const SWEEP_STOP_TOKENS = ["<|file_sep|>", "<|endoftext|>"];
 
 const WINDOW_LINES_BEFORE = 30;
 const WINDOW_LINES_AFTER = 30;
@@ -66,24 +69,10 @@ const DEFAULT_OPTIONS: SweepPromptOptions = {
 	rules: "",
 };
 
-export interface PromptLine {
-	startByte: number;
-	content: string;
-}
-
-export interface SweepPrompt {
-	prompt: string;
-	prefill: string;
-	windowStartLine: number; // 0-indexed inclusive
-	windowEndLine: number; // 0-indexed exclusive
-	lines: PromptLine[];
-	cursorLineByteOffsets: number[]; // byte offset where each line starts (length = lines.length + 1)
-}
-
 export function buildSweepPrompt(
 	req: AutocompleteRequest,
 	overrides: Partial<SweepPromptOptions> = {},
-): SweepPrompt {
+): ModelPrompt {
 	const opts: SweepPromptOptions = { ...DEFAULT_OPTIONS, ...overrides };
 	const lines = splitLines(req.file_contents);
 	const lineOffsets = computeLineByteOffsets(lines);
@@ -171,6 +160,8 @@ export function buildSweepPrompt(
 	return {
 		prompt: body,
 		prefill,
+		format: "sweep",
+		stopTokens: SWEEP_STOP_TOKENS,
 		windowStartLine,
 		windowEndLine,
 		lines: lines.map((content, i) => ({
@@ -181,11 +172,11 @@ export function buildSweepPrompt(
 	};
 }
 
-function splitLines(text: string): string[] {
+export function splitLines(text: string): string[] {
 	return text.split("\n");
 }
 
-function computeLineByteOffsets(lines: string[]): number[] {
+export function computeLineByteOffsets(lines: string[]): number[] {
 	const offsets = new Array<number>(lines.length + 1);
 	offsets[0] = 0;
 	let off = 0;
@@ -197,7 +188,7 @@ function computeLineByteOffsets(lines: string[]): number[] {
 	return offsets;
 }
 
-function locateCursor(
+export function locateCursor(
 	lineOffsets: number[],
 	cursorByte: number,
 ): { line: number; col: number } {

@@ -147,7 +147,7 @@
 				"sweep.modelName": {
 					"type": "string",
 					"default": "sweepai/sweep-next-edit",
-					"description": "Model name sent in the request body (informational for single-model servers like llama-server)."
+					"description": "Model name sent in the request body. The prompt format is selected by substring match: names containing 'zeta2' / 'zeta-2' / 'seedcoder' use Zed's SeedCoder FIM layout, anything else uses the sweep <|file_sep|> layout."
 				},
 				"sweep.completionTimeoutMs": {
 					"type": "number",

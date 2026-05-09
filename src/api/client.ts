@@ -2,7 +2,7 @@ import * as os from "node:os";
 import * as vscode from "vscode";
 
 import { config } from "~/core/config.ts";
-import { MAX_TOKENS, STOP_TOKENS, TEMPERATURE } from "~/core/constants.ts";
+import { MAX_TOKENS, TEMPERATURE } from "~/core/constants.ts";
 import { logger } from "~/core/logger.ts";
 import type { CompletionServer } from "~/services/completion-server.ts";
 import { toUnixPath } from "~/utils/path.ts";
@@ -11,6 +11,7 @@ import {
 	utf8ByteOffsetAt,
 	utf8ByteOffsetToUtf16Offset,
 } from "~/utils/text.ts";
+import { detectModelFormat, type ModelPrompt } from "./model-format.ts";
 import {
 	fuseAndDedupRetrievalSnippets,
 	truncateRetrievalChunk,
@@ -26,8 +27,10 @@ import {
 	type RecentChange,
 	type UserAction,
 } from "./schemas.ts";
-import { buildAutocompleteResponse } from "./sweep-completion.ts";
+import { buildSweepResponse } from "./sweep-completion.ts";
 import { buildSweepPrompt } from "./sweep-prompt.ts";
+import { buildZeta2Response } from "./zeta2-completion.ts";
+import { buildZeta2Prompt } from "./zeta2-prompt.ts";
 
 export interface AutocompleteInput {
 	document: vscode.TextDocument;
@@ -82,16 +85,24 @@ export class ApiClient {
 			return null;
 		}
 
-		const prompt = buildSweepPrompt(parsedRequest.data, {
-			broadBefore: config.broadBefore,
-			broadAfter: config.broadAfter,
-			diagRadius: config.diagRadius,
-			rules: loadWorkspaceRules(input.document),
-		});
+		const format = detectModelFormat(config.modelName);
+		const rules = loadWorkspaceRules(input.document);
+		const prompt: ModelPrompt =
+			format === "zeta2"
+				? buildZeta2Prompt(parsedRequest.data, {
+						diagRadius: config.diagRadius,
+						rules,
+					})
+				: buildSweepPrompt(parsedRequest.data, {
+						broadBefore: config.broadBefore,
+						broadAfter: config.broadAfter,
+						diagRadius: config.diagRadius,
+						rules,
+					});
 
 		const reqStarted = Date.now();
 		logger.info(
-			`→ /v1/completions model=${config.modelName} max_tokens=${MAX_TOKENS} prompt_chars=${prompt.prompt.length}`,
+			`→ /v1/completions format=${format} model=${config.modelName} max_tokens=${MAX_TOKENS} prompt_chars=${prompt.prompt.length}`,
 		);
 		try {
 			const completion = await this.server.getClient().complete(
@@ -100,7 +111,7 @@ export class ApiClient {
 					prompt: prompt.prompt,
 					temperature: TEMPERATURE,
 					maxTokens: MAX_TOKENS,
-					stop: STOP_TOKENS,
+					stop: prompt.stopTokens,
 					timeoutMs: config.completionTimeoutMs,
 				},
 				signal,
@@ -112,8 +123,11 @@ export class ApiClient {
 			);
 			logger.trace("← /v1/completions raw response:", completion.text);
 
-			const id = `sweep-${Date.now()}-${++this.idCounter}`;
-			const response = buildAutocompleteResponse(completion, prompt, id);
+			const id = `nesweep-${Date.now()}-${++this.idCounter}`;
+			const response =
+				format === "zeta2"
+					? buildZeta2Response(completion, prompt, id)
+					: buildSweepResponse(completion, prompt, id);
 			if (!response) return null;
 
 			const decode = (i: number) =>
@@ -124,6 +138,9 @@ export class ApiClient {
 				endIndex: decode(response.end_index),
 				completion: response.completion,
 				confidence: response.confidence,
+				...(response.cursor_target_offset !== undefined
+					? { cursorTargetOffset: response.cursor_target_offset }
+					: {}),
 			};
 			// If the replacement starts before the cursor on the same line that
 			// contains it, anchor the start at the cursor and strip the matching
@@ -137,6 +154,16 @@ export class ApiClient {
 				if (result.completion.startsWith(prefix)) {
 					result.startIndex = cursorOffset;
 					result.completion = result.completion.slice(prefix.length);
+					if (result.cursorTargetOffset !== undefined) {
+						// Shift the cursor target to match the trimmed completion.
+						// If the marker landed inside the stripped prefix, drop it
+						// (we no longer have a meaningful position to point at).
+						if (result.cursorTargetOffset >= prefix.length) {
+							result.cursorTargetOffset -= prefix.length;
+						} else {
+							delete result.cursorTargetOffset;
+						}
+					}
 				}
 			}
 			if (result.completion.length === 0) return null;

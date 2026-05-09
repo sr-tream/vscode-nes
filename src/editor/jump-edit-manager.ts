@@ -150,6 +150,15 @@ export class JumpEditManager implements vscode.Disposable {
 			originalLines: originalLines.map((l) => l.slice(0, 40)),
 			newLines: newLines.map((l) => l.slice(0, 40)),
 		});
+		if (
+			result.completion.includes("<|cursor|>") ||
+			result.completion.includes("<|user_cursor|>")
+		) {
+			logger.warn(
+				"Jump edit completion still contains a cursor marker after stripping",
+				{ id: result.id, preview: result.completion.slice(0, 200) },
+			);
+		}
 
 		this.pendingJumpEdit = {
 			result,
@@ -459,15 +468,36 @@ export class JumpEditManager implements vscode.Disposable {
 		);
 
 		if (success) {
-			const endsWithNewline = result.completion.endsWith("\n");
-			const insertedLines = result.completion.split("\n");
-			const contentLineCount = endsWithNewline
-				? insertedLines.length - 1
-				: insertedLines.length;
-			const newCursorLine = start.line + Math.max(0, contentLineCount - 1);
-			const safeLine = Math.min(newCursorLine, editor.document.lineCount - 1);
-			const newCursorChar = editor.document.lineAt(safeLine).text.length;
-			const newPos = new vscode.Position(safeLine, newCursorChar);
+			let newPos: vscode.Position;
+			if (result.cursorTargetOffset !== undefined) {
+				// Land the cursor exactly where the model said it should go,
+				// translating the UTF-16 offset within `completion` into a
+				// (line, character) position in the post-edit buffer.
+				const before = result.completion.slice(0, result.cursorTargetOffset);
+				const newlinesBefore = (before.match(/\n/g) ?? []).length;
+				const targetLine = start.line + newlinesBefore;
+				const lastNl = before.lastIndexOf("\n");
+				const targetChar =
+					lastNl === -1
+						? start.character + before.length
+						: before.length - lastNl - 1;
+				const safeLine = Math.min(targetLine, editor.document.lineCount - 1);
+				newPos = new vscode.Position(safeLine, targetChar);
+				logger.debug("Jump edit cursor placed at predicted position", {
+					line: safeLine + 1,
+					character: targetChar,
+				});
+			} else {
+				const endsWithNewline = result.completion.endsWith("\n");
+				const insertedLines = result.completion.split("\n");
+				const contentLineCount = endsWithNewline
+					? insertedLines.length - 1
+					: insertedLines.length;
+				const newCursorLine = start.line + Math.max(0, contentLineCount - 1);
+				const safeLine = Math.min(newCursorLine, editor.document.lineCount - 1);
+				const newCursorChar = editor.document.lineAt(safeLine).text.length;
+				newPos = new vscode.Position(safeLine, newCursorChar);
+			}
 			editor.selection = new vscode.Selection(newPos, newPos);
 			editor.revealRange(
 				new vscode.Range(newPos, newPos),

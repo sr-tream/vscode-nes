@@ -59,6 +59,11 @@ export const AutocompleteResponseSchema = z.object({
 	confidence: z.number(),
 	elapsed_time_ms: z.number().optional(),
 	finish_reason: z.string().nullable().optional(),
+	// UTF-16 code-unit offset inside `completion` where the model placed
+	// its cursor-position marker. The provider converts this to a snippet
+	// $0 placeholder so accepting drops the cursor at the predicted spot
+	// instead of the end of the inserted text.
+	cursor_target_offset: z.number().optional(),
 	completions: z
 		.array(
 			z.object({
@@ -86,6 +91,10 @@ export interface AutocompleteResult {
 	endIndex: number;
 	completion: string;
 	confidence: number;
+	// UTF-16 code-unit offset inside `completion` where the model wants the
+	// cursor to land after the suggestion is accepted. Undefined when the
+	// model didn't emit a cursor marker.
+	cursorTargetOffset?: number;
 }
 
 export interface RecentChange {

@@ -9,15 +9,15 @@
 // there. We trim common-prefix and common-suffix lines so the returned
 // edit covers only the lines that actually differ.
 
+import { logger } from "~/core/logger.ts";
 import type { CompletionResult } from "./completion-client.ts";
+import type { ModelPrompt } from "./model-format.ts";
 import type { AutocompleteResponse } from "./schemas.ts";
-import type { SweepPrompt } from "./sweep-prompt.ts";
+import { SWEEP_STOP_TOKENS } from "./sweep-prompt.ts";
 
-const STOP_MARKERS = ["<|file_sep|>", "<|endoftext|>"];
-
-export function buildAutocompleteResponse(
+export function buildSweepResponse(
 	completion: CompletionResult,
-	prompt: SweepPrompt,
+	prompt: ModelPrompt,
 	autocompleteId: string,
 ): AutocompleteResponse | null {
 	// finish_reason=length means num_predict cut the model off mid-window.
@@ -31,12 +31,23 @@ export function buildAutocompleteResponse(
 	if (completion.finishReason === "length") return null;
 
 	let text = completion.text;
-	for (const marker of STOP_MARKERS) {
+	for (const marker of SWEEP_STOP_TOKENS) {
 		const idx = text.indexOf(marker);
 		if (idx !== -1) text = text.slice(0, idx);
 	}
+	// Replace the first cursor marker with a sentinel char so we can track
+	// its position through prefill / repetition / line-trim mangling and
+	// surface it as the snippet $0 location after accept. Any extra
+	// markers are stripped without tracking.
+	const markerCount = countCursorMarkers(text);
+	if (markerCount > 0) {
+		logger.debug(
+			`sweep response contained ${markerCount} cursor marker(s); stripping`,
+		);
+	}
+	text = injectCursorSentinel(text);
 	text = text.replace(/[ \t\n\r]+$/g, "");
-	if (text.trim() === "") return null;
+	if (text.replace(SENTINEL, "").trim() === "") return null;
 
 	const fullText = prompt.prefill + text;
 	const stripped = stripRepetition(fullText);
@@ -80,6 +91,15 @@ export function buildAutocompleteResponse(
 		completionText = newMiddle.join("\n");
 	}
 
+	const { text: cleanedCompletion, cursorTargetOffset } =
+		extractCursorSentinel(completionText);
+	completionText = cleanedCompletion;
+	if (cursorTargetOffset !== undefined) {
+		logger.debug(
+			`sweep cursor target at offset ${cursorTargetOffset} of ${completionText.length}-char completion`,
+		);
+	}
+
 	if (completionText.length === 0 && endByte === startByte) return null;
 
 	return {
@@ -89,6 +109,9 @@ export function buildAutocompleteResponse(
 		completion: completionText,
 		confidence: 0.8,
 		finish_reason: completion.finishReason,
+		...(cursorTargetOffset !== undefined
+			? { cursor_target_offset: cursorTargetOffset }
+			: {}),
 	};
 }
 
@@ -151,4 +174,51 @@ function stripRepetition(text: string): string | null {
 	if (cutIdx < 0) return text;
 	if (cutIdx === 0) return null;
 	return lines.slice(0, cutIdx).join("\n");
+}
+
+// U+E000 (Private Use Area) — never appears in real source, so it survives
+// line-splitting / repetition trimming / line-diff trimming intact.
+const SENTINEL = String.fromCharCode(0xe000);
+const PROMPT_MARKERS = ["<|user_cursor|>", "<|cursor|>"];
+
+function countCursorMarkers(text: string): number {
+	let n = 0;
+	for (const m of PROMPT_MARKERS) {
+		const parts = text.split(m).length - 1;
+		n += parts;
+	}
+	return n;
+}
+
+// Replace the FIRST cursor marker with the sentinel so we can track it
+// through downstream text mangling. Strip remaining occurrences silently.
+function injectCursorSentinel(text: string): string {
+	let firstIdx = -1;
+	let firstLen = 0;
+	for (const m of PROMPT_MARKERS) {
+		const i = text.indexOf(m);
+		if (i !== -1 && (firstIdx === -1 || i < firstIdx)) {
+			firstIdx = i;
+			firstLen = m.length;
+		}
+	}
+	let result = text;
+	if (firstIdx !== -1) {
+		result =
+			result.slice(0, firstIdx) + SENTINEL + result.slice(firstIdx + firstLen);
+	}
+	for (const m of PROMPT_MARKERS) {
+		if (result.includes(m)) result = result.split(m).join("");
+	}
+	return result;
+}
+
+function extractCursorSentinel(text: string): {
+	text: string;
+	cursorTargetOffset: number | undefined;
+} {
+	const idx = text.indexOf(SENTINEL);
+	if (idx === -1) return { text, cursorTargetOffset: undefined };
+	const cleaned = text.slice(0, idx) + text.slice(idx + SENTINEL.length);
+	return { text: cleaned, cursorTargetOffset: idx };
 }

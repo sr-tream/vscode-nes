@@ -1,7 +1,3 @@
-// Sweep model tokens
-export const SWEEP_FILE_SEP_TOKEN = "<|file_sep|>";
-export const STOP_TOKENS = ["<|file_sep|>", "<|endoftext|>"];
-
 // Default configuration
 export const DEFAULT_MAX_CONTEXT_FILES = 5;
 export const DEFAULT_SERVER_URL = "http://localhost:8080";
