@@ -111,12 +111,12 @@
 					"type": "boolean",
 					"default": true,
 					"scope": "window",
-					"description": "Enable or disable NESweep suggestions"
+					"markdownDescription": "Enable or disable NESweep suggestions for this window."
 				},
 				"sweep.maxContextFiles": {
 					"type": "number",
 					"default": 5,
-					"description": "Maximum number of recently viewed files to include as context"
+					"markdownDescription": "Maximum number of recently-viewed files to bundle into the prompt as additional context (open editors + LSP definitions / usages). Higher values give the model more to work with at the cost of a longer prompt and slower first-token latency."
 				},
 				"sweep.autocompleteExclusionPatterns": {
 					"type": "array",
@@ -132,52 +132,52 @@
 						"**/.dev.vars",
 						"**/secrets.yml"
 					],
-					"description": "File name suffixes or globs to exclude from autocomplete"
+					"markdownDescription": "File globs / suffixes that NESweep should never request completions for. Defaults cover the common secret-bearing files (`.env`, `.pem`, `.key`, …) so request bodies don't leak credentials to the completion server. Add project-specific patterns to extend."
 				},
 				"sweep.autocompleteSnoozeUntil": {
 					"type": "number",
 					"default": 0,
-					"description": "Unix timestamp (ms) until which autocomplete is snoozed (0 disables snooze)"
+					"markdownDescription": "Pause completions until the given Unix timestamp (milliseconds). `0` disables the snooze. Set via the `NESweep: Snooze` command rather than editing this directly."
 				},
 				"sweep.serverUrl": {
 					"type": "string",
 					"default": "http://localhost:8080",
-					"description": "Base URL of the OpenAI-compatible /v1/completions server (e.g. llama.cpp's llama-server) serving the sweep model."
+					"markdownDescription": "Base URL of the OpenAI-compatible `/v1/completions` server serving the model — e.g. llama.cpp's `llama-server`, vLLM, sglang, Ollama with the OpenAI shim. The extension only POSTs to `/v1/completions`; nothing else on the server is touched."
 				},
 				"sweep.modelName": {
 					"type": "string",
 					"default": "sweepai/sweep-next-edit",
-					"description": "Model name sent in the request body. The prompt format is selected by substring match: names containing 'zeta-2.1' / 'zeta2.1' use Zed's SeedCoder FIM layout v2.1 with `<|marker_1|>` / `<|marker_2|>` paired markers; names containing 'zeta-2' / 'zeta2' / 'seedcoder' use the v2.0 git-conflict layout; anything else uses the sweep `<|file_sep|>` layout."
+					"markdownDescription": "Model name sent in the request body's `model` field. The prompt format is auto-selected by substring match against this name:\n\n- **Zeta-2.1 (multi-region)** — names containing `zeta-2.1`, `zeta2.1`, `zeta-2-1`, or `zeta_2_1`. Uses paired numbered markers `<|marker_1|>` / `<|marker_2|>` and supports up to 3 editable regions per request (cursor area + nearby diagnostics).\n- **Zeta-2 (single-region SeedCoder FIM)** — names containing `zeta-2`, `zeta2`, or `seedcoder`. Uses the legacy git-conflict scaffold `<<<<<<< CURRENT` / `=======` / `>>>>>>> UPDATED`.\n- **Sweep `<|file_sep|>` layout** — anything else (including the default `sweepai/sweep-next-edit`). Uses the broad-context + retrieval + `original/current/updated` triplet structure ported from cursortab.nvim."
 				},
 				"sweep.completionTimeoutMs": {
 					"type": "number",
 					"default": 10000,
-					"description": "Per-request timeout (ms)."
+					"markdownDescription": "Per-request timeout in milliseconds. Requests that exceed this are aborted and the suggestion is dropped. Bump it for large prompts on slow hardware; lower it to fail fast on a misconfigured server."
 				},
 				"sweep.diagRadius": {
 					"type": "number",
 					"default": 12,
-					"description": "Drop diagnostics whose line is more than N lines from the cursor (0 disables the filter)."
+					"markdownDescription": "Drop LSP diagnostics whose line is more than this many lines from the cursor before they reach the prompt.\n\n- `0` disables the filter (every diagnostic on the file is kept, capped at 15 entries)\n- Default `12` matches cursortab's behaviour and keeps the diagnostics block compact."
 				},
 				"sweep.broadBefore": {
 					"type": "number",
 					"default": 125,
-					"description": "Lines of broad file context to keep before the cursor (the leading <|file_sep|>{path} section)."
+					"markdownDescription": "Lines of broad file context to keep **before** the cursor in the leading `<|file_sep|>{path}` section. Cursortab hardcodes ±150; the asymmetric default (125 before / 75 after) biases toward already-written code, where the model usually needs more context."
 				},
 				"sweep.broadAfter": {
 					"type": "number",
 					"default": 75,
-					"description": "Lines of broad file context to keep after the cursor."
+					"markdownDescription": "Lines of broad file context to keep **after** the cursor in the leading `<|file_sep|>{path}` section. See `sweep.broadBefore` for the rationale behind the asymmetric default."
 				},
 				"sweep.injectInlineDiagnostics": {
 					"type": "boolean",
 					"default": false,
-					"description": "Recommended for the small SweepAI checkpoints (0.5B and 1.5B), which ignore the structured diagnostics section. The 7B SweepAI default and the 8B Zeta2 SeedCoder don't need this — leave it off for those. Appends `<commentPrefix> <inlineDiagnosticsMarker> (code: <code>) - <message>` to every nearby line that has an LSP diagnostic in the prompt sent to the model — inline placement next to the affected token gets the model to attend much more reliably. The fake comments are stripped from the model's response on accept (anchored on the literal `<commentPrefix> <inlineDiagnosticsMarker>` substring, so the strip survives the model paraphrasing the rest of the message)."
+					"markdownDescription": "**Mega-hack: inline `// BUG:` comments next to every nearby diagnosed line in the prompt only.**\n\nAppends `<commentPrefix> <marker> (code: <code>) - <message>` to each diagnosed line in the rendered prompt — inline placement next to the affected token gets the model to attend to LSP errors much more reliably than a sibling diagnostics section. The fake comments are stripped from the response before applying, anchored on the literal `<commentPrefix> <marker>` substring so the strip survives the model paraphrasing the rest of the message body.\n\n**When to enable:**\n- ✅ **0.5B / 1.5B SweepAI checkpoints** — they routinely ignore the structured diagnostics section and need the inline nudge.\n- ❌ **7B SweepAI (default) and 8B Zeta-2 / Zeta-2.1 SeedCoder** — strong enough to pick up the structured block; the inline noise just bloats the prompt.\n\nWhen on, the structured `context/diagnostics` section is suppressed so the same data isn't emitted twice."
 				},
 				"sweep.inlineDiagnosticsMarker": {
 					"type": "string",
 					"default": "BUG: LSP error here",
-					"description": "Marker phrase emitted between the language's comment prefix and the diagnostic body — e.g. `// BUG: LSP error here (code: …) - <message>` for C/C++. Must be a phrase a human would essentially never type so the strip on accept can pinpoint our injections without touching user-authored TODO/FIXME comments. Different small models seem to attend to different phrasings; tune per model if needed."
+					"markdownDescription": "Marker phrase emitted between the language's comment prefix and the diagnostic body when `sweep.injectInlineDiagnostics` is on.\n\nFor C/C++ the default produces:\n```\n// BUG: LSP error here (code: undeclared_var_use_suggest) - use 'spdlog' instead (Use of undeclared identifier 'psdlog')\n```\n\nMust be a phrase a human would essentially never type — the response-side strip pinpoints our injections by matching the literal `<commentPrefix> <marker>` substring, so colliding with user-authored `TODO:` / `FIXME:` comments is undesirable. Different small models seem to attend to different phrasings; tune per model if the default doesn't get traction."
 				},
 				"sweep.diagnosticsMessageTransforms": {
 					"type": "object",
@@ -187,7 +187,7 @@
 						"^Variable ['\"`]([^'\"`]+)['\"`] is uninitialized when used here\\.?$": "initialise '$1' before use",
 						"^Implicit conversion loses integer precision: ['\"`]([^'\"`]+)['\"`] to ['\"`]([^'\"`]+)['\"`]\\.?$": "narrow $1 to $2 explicitly with a cast"
 					},
-					"description": "Additional regex transforms applied to every diagnostic message AFTER the built-in normalisations (strip `(fix available)`, rewrite `did you mean 'X'?` to `use 'X' instead`). Applied uniformly to BOTH the structured diagnostics section and the inline `BUG:` injection. Key is a JavaScript regex source, value is the replacement string (use `$1`/`$2` for capture groups). Flags are hardcoded to `i` (case-insensitive). Defaults cover common clang / clang-tidy patterns; add your own for other linters.",
+					"markdownDescription": "Additional regex transforms applied to every diagnostic message **after** the built-in normalisations.\n\nBuilt-ins (always active, can't be turned off):\n- Strip `(fix available)` / `(fixes available)` suffix\n- Rewrite `did you mean 'X'?` → `use 'X' instead`\n- Rewrite `consider using 'X'` → `use 'X' instead`\n- Rewrite `replace with 'X'` → `use 'X' instead`\n\nUser entries:\n- **Key** is a JavaScript regex source. Use `$1`, `$2`, … to reference capture groups in the replacement.\n- **Value** is the replacement string.\n- **Flags** are hardcoded to `i` (case-insensitive). For other flags, encode them in the pattern itself.\n- Invalid regexes are silently skipped — a typo in one entry won't break the rest.\n\nApplied uniformly to **both** the structured `context/diagnostics` section and the inline `// BUG:` injection. Defaults cover common clang / clang-tidy patterns; add entries for other linters as needed.",
 					"additionalProperties": {
 						"type": "string",
 						"description": "Replacement string ($1, $2, … for capture groups)"
