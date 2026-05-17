@@ -27,3 +27,11 @@ export const TEMPERATURE = 0.0;
 export const AUTOCOMPLETE_MAX_FILE_SIZE = 10_000_000;
 export const AUTOCOMPLETE_MAX_LINES = 50_000;
 export const AUTOCOMPLETE_AVG_LINE_LENGTH_THRESHOLD = 240;
+
+// Soft cap on per-language rules files. The body is wrapped as comments
+// and spliced into the prefix of every completion prompt — cache-friendly
+// on a server with prefix caching (llama.cpp -cpent, vLLM/sglang), so
+// the steady-state cost is mainly the context budget consumed, plus a
+// prompt-eval spike on each save (cache invalidation). ~3000 chars is
+// roughly 1000 tokens on the Sweep tokenizer.
+export const DEFAULT_RULES_MAX_CHARS = 3000;

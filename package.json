@@ -169,6 +169,11 @@
 					"default": 75,
 					"markdownDescription": "Lines of broad file context to keep **after** the cursor in the leading `<|file_sep|>{path}` section. See `sweep.broadBefore` for the rationale behind the asymmetric default."
 				},
+				"sweep.rulesMaxChars": {
+					"type": "number",
+					"default": 3000,
+					"markdownDescription": "Soft cap on the size of per-language instructions files (`.vscode/nes-<languageId>.md`).\n\nRules sit at the **front** of every completion prompt — a prefix-cache-friendly slot, so a server with prompt caching (llama.cpp with `-cpent 256` to checkpoint every 256 tokens, vLLM/sglang prefix caching on by default) only re-evaluates the rules block on the first request or when the file changes. The cost of a fat rules file is therefore:\n\n- **Context budget** consumed on every request, even when cached.\n- **Prompt-eval latency spike** on first request and after every save.\n- **No caching benefit at all** if your server has caching off or the threshold is set above the rules-block size.\n\nOverflow surfaces as a Warning diagnostic + red background on the over-limit region in the editor; it does **not** truncate the file or block completions. Set to `0` to disable the warning.\n\nDefault `3000` ≈ ~1000 tokens on the Sweep tokenizer — a reasonable budget for session-stable guidance."
+				},
 				"sweep.injectInlineDiagnostics": {
 					"type": "boolean",
 					"default": false,

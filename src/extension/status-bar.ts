@@ -1,5 +1,8 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as vscode from "vscode";
 
+import { getRulesFilePath } from "~/api/rules.ts";
 import { config } from "~/core/config";
 import type { CompletionServer } from "~/services/completion-server.ts";
 
@@ -99,6 +102,30 @@ export function registerStatusBarCommands(
 				},
 			];
 
+			const editor = vscode.window.activeTextEditor;
+			const rulesPath = editor ? getRulesFilePath(editor.document) : null;
+			if (editor && rulesPath) {
+				const lang = editor.document.languageId;
+				const limit = config.rulesMaxChars;
+				let description: string;
+				let overflow = false;
+				try {
+					const stat = fs.statSync(rulesPath);
+					const size = stat.size;
+					overflow = limit > 0 && size > limit;
+					description = overflow
+						? `${path.basename(rulesPath)} — ${size} chars (${size - limit} over)`
+						: `${path.basename(rulesPath)} — ${size} chars`;
+				} catch {
+					description = `No instructions yet — click to create ${path.basename(rulesPath)}`;
+				}
+				items.push({
+					label: `$(${overflow ? "warning" : "edit"}) Edit Instructions for ${lang}`,
+					description,
+					action: "editInstructions",
+				});
+			}
+
 			const selection = await vscode.window.showQuickPick(items, {
 				placeHolder: "NESweep Settings",
 				title: "NESweep",
@@ -124,6 +151,9 @@ export function registerStatusBarCommands(
 								);
 							}
 						}
+						break;
+					case "editInstructions":
+						if (rulesPath) await openRulesFile(rulesPath);
 						break;
 				}
 			}
@@ -195,4 +225,13 @@ async function handleSnooze(): Promise<void> {
 async function handleResumeSnooze(): Promise<void> {
 	await config.setAutocompleteSnoozeUntil(0, vscode.ConfigurationTarget.Global);
 	vscode.window.showInformationMessage("NESweep autocomplete resumed.");
+}
+
+async function openRulesFile(rulesPath: string): Promise<void> {
+	if (!fs.existsSync(rulesPath)) {
+		fs.mkdirSync(path.dirname(rulesPath), { recursive: true });
+		fs.writeFileSync(rulesPath, "");
+	}
+	const doc = await vscode.workspace.openTextDocument(rulesPath);
+	await vscode.window.showTextDocument(doc);
 }

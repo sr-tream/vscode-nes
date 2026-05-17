@@ -7,6 +7,7 @@ import {
 	DEFAULT_COMPLETION_TIMEOUT_MS,
 	DEFAULT_DIAG_RADIUS,
 	DEFAULT_MAX_CONTEXT_FILES,
+	DEFAULT_RULES_MAX_CHARS,
 	DEFAULT_SERVER_URL,
 	MODEL_NAME,
 } from "~/core/constants.ts";
@@ -68,6 +69,10 @@ export class SweepConfig {
 
 	get broadAfter(): number {
 		return this.config.get<number>("broadAfter", DEFAULT_BROAD_AFTER);
+	}
+
+	get rulesMaxChars(): number {
+		return this.config.get<number>("rulesMaxChars", DEFAULT_RULES_MAX_CHARS);
 	}
 
 	// Recommended for the small SweepAI checkpoints (0.5B and 1.5B) that

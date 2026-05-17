@@ -68,6 +68,20 @@ export function getCommentPrefix(languageId: string): string {
 	return COMMENT_PREFIXES[languageId] ?? "//";
 }
 
+// Path of the rules file for `document`, or null if either the document
+// is outside a workspace folder or its language has no registered
+// single-line comment style (in which case the file would be silently
+// ignored anyway — see loadWorkspaceRules).
+export function getRulesFilePath(
+	document: vscode.TextDocument,
+): string | null {
+	const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+	if (!ws) return null;
+	const lang = document.languageId;
+	if (!Object.hasOwn(COMMENT_PREFIXES, lang)) return null;
+	return path.join(ws.uri.fsPath, ".vscode", `nes-${lang}.md`);
+}
+
 export function loadWorkspaceRules(document: vscode.TextDocument): string {
 	const ws = vscode.workspace.getWorkspaceFolder(document.uri);
 	if (!ws) return "";

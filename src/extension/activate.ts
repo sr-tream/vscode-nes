@@ -8,6 +8,7 @@ import {
 	initSyntaxHighlighter,
 	reloadTheme,
 } from "~/editor/syntax-highlight-renderer.ts";
+import { RulesDiagnostics } from "~/extension/rules-diagnostics.ts";
 import {
 	registerStatusBarCommands,
 	SweepStatusBar,
@@ -80,6 +81,7 @@ export function activate(context: vscode.ExtensionContext) {
 		context,
 		completionServer,
 	);
+	const rulesDiagnostics = new RulesDiagnostics();
 
 	const changeListener = vscode.workspace.onDidChangeTextDocument((event) => {
 		if (event.document === vscode.window.activeTextEditor?.document) {
@@ -152,6 +154,7 @@ export function activate(context: vscode.ExtensionContext) {
 		jumpEditManager,
 		statusBar,
 		completionServer,
+		rulesDiagnostics,
 		logChannel,
 		...statusBarCommands,
 	);
