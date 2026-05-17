@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>NESweep</title>
+  <defs>
+    <linearGradient id="chev" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#7FE8FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="192" fill="#1A1338"/>
+
+  <!-- I-beam text caret: serifs + stem, hints "editor cursor" -->
+  <g fill="#FFFFFF">
+    <rect x="240" y="280" width="240" height="56" rx="14"/>
+    <rect x="332" y="280" width="56" height="464" rx="14"/>
+    <rect x="240" y="688" width="240" height="56" rx="14"/>
+  </g>
+
+  <!-- Forward chevron with gradient: "next edit", AI motion -->
+  <polyline points="560,320 760,512 560,704"
+            fill="none" stroke="url(#chev)" stroke-width="80"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

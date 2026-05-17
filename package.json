@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/sr-tream/vscode-nes"
 	},
-	"icon": "assets/sweep-square.png",
+	"icon": "assets/nesweep.png",
 	"license": "AGPL-3.0-or-later",
 	"private": true,
 	"engines": {
@@ -33,15 +33,6 @@
 	],
 	"main": "./out/extension.js",
 	"contributes": {
-		"icons": {
-			"sweep-icon": {
-				"description": "NESweep Icon",
-				"default": {
-					"fontPath": "assets/sweep-icons.woff2",
-					"fontCharacter": "\\ea01"
-				}
-			}
-		},
 		"commands": [
 			{
 				"command": "sweep.triggerNextEdit",

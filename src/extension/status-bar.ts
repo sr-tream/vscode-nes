@@ -36,7 +36,7 @@ export class SweepStatusBar implements vscode.Disposable {
 		const isEnabled = config.enabled;
 		const isSnoozed = config.isAutocompleteSnoozed();
 
-		this.statusBarItem.text = "$(sweep-icon) NESweep";
+		this.statusBarItem.text = "NESweep";
 		this.statusBarItem.tooltip = this.buildTooltip(isEnabled, isSnoozed);
 
 		if (!isEnabled || isSnoozed) {
