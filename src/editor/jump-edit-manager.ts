@@ -74,6 +74,11 @@ export class JumpEditManager implements vscode.Disposable {
 		const editEndLine = document.positionAt(result.endIndex).line;
 		const cursorLine = cursorPosition.line;
 		const cursorOffset = document.offsetAt(cursorPosition);
+		const editRange = new vscode.Range(
+			document.positionAt(result.startIndex),
+			document.positionAt(result.endIndex),
+		);
+		const replacedText = document.getText(editRange);
 		const documentText = document.getText();
 		const documentLength = documentText.length;
 		const atEndOfDocument = cursorOffset >= documentLength;
@@ -96,6 +101,7 @@ export class JumpEditManager implements vscode.Disposable {
 			startIndex: result.startIndex,
 			endIndex: result.endIndex,
 			completion: result.completion,
+			replacedText,
 			isOnSingleNewlineBoundary,
 		});
 
@@ -395,7 +401,7 @@ export class JumpEditManager implements vscode.Disposable {
 				range: new vscode.Range(cursorLine, 0, cursorLine, 0),
 				renderOptions: {
 					after: {
-						contentText: `→ Edit at line ${targetLine + 1} (Tab ✓, Esc ✗)`,
+						contentText: `→ Edit at line ${targetLine + 1} (Alt+Tab accept, Esc dismiss)`,
 					},
 				},
 			};

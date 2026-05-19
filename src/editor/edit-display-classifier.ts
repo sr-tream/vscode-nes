@@ -8,6 +8,7 @@ export interface EditDisplayClassification {
 		| "before-cursor-single-line"
 		| "single-newline-boundary"
 		| "multiline-replacement-at-cursor"
+		| "same-line-replacement-at-cursor"
 		| "inline-safe";
 }
 
@@ -19,6 +20,7 @@ export interface EditDisplayClassifierInput {
 	startIndex: number;
 	endIndex: number;
 	completion: string;
+	replacedText?: string;
 	isOnSingleNewlineBoundary: boolean;
 }
 
@@ -84,6 +86,19 @@ export function classifyEditDisplay(
 		return {
 			decision: "JUMP",
 			reason: "multiline-replacement-at-cursor",
+		};
+	}
+
+	if (
+		input.startIndex === input.cursorOffset &&
+		input.endIndex > input.startIndex &&
+		input.editEndLine === input.editStartLine &&
+		input.replacedText !== undefined &&
+		!input.completion.startsWith(input.replacedText)
+	) {
+		return {
+			decision: "JUMP",
+			reason: "same-line-replacement-at-cursor",
 		};
 	}
 

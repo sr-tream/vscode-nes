@@ -33,6 +33,9 @@
 		"onStartupFinished"
 	],
 	"main": "./out/extension.js",
+	"enabledApiProposals": [
+		"inlineCompletionsAdditions"
+	],
 	"contributes": {
 		"icons": {
 			"nesweep-idle": {
@@ -174,6 +177,15 @@
 					"type": "number",
 					"default": 0,
 					"markdownDescription": "Pause completions until the given Unix timestamp (milliseconds). `0` disables the snooze. Set via the `NESweep: Snooze` command rather than editing this directly."
+				},
+				"sweep.useCopilotStyleNextEditPresentation": {
+					"type": "boolean",
+					"default": false,
+					"scope": "window",
+					"tags": [
+						"experimental"
+					],
+					"markdownDescription": "Use VS Code's proposed inline edit presentation for next-edit suggestions."
 				},
 				"sweep.serverUrl": {
 					"type": "string",
