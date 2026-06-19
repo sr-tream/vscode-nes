@@ -2,7 +2,7 @@
 	"name": "nesweep",
 	"displayName": "NESweep autocompletion",
 	"description": "Next Edit Autocomplete using Sweep Model",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"publisher": "SR-team",
 	"author": {
 		"name": "SR_team"
