@@ -4,6 +4,11 @@ import type { AutocompleteResult } from "~/api/schemas.ts";
 import { config } from "~/core/config";
 import { logger } from "~/core/logger.ts";
 import type { JumpEditManager } from "~/editor/jump-edit-manager.ts";
+import {
+	enableForwardStability,
+	markAsProposedInlineEdit,
+	type ProposedInlineCompletionDisplayLocation,
+} from "~/editor/proposed-inline-edit.ts";
 import type { DocumentTracker } from "~/telemetry/document-tracker.ts";
 import { toUnixPath } from "~/utils/path.ts";
 import { isFileTooLarge, utf8ByteOffsetAt } from "~/utils/text.ts";
@@ -35,6 +40,11 @@ interface AcceptedInlineSuggestion {
 	completion: string;
 }
 
+interface CompletionItemBuildOptions {
+	useProposedInlineEditPresentation?: boolean;
+	displayLocation?: ProposedInlineCompletionDisplayLocation;
+}
+
 // Build a SnippetString that places the final cursor ($0) at the model's
 // predicted post-edit position. Snippet metacharacters in the surrounding
 // text need to be escaped — `$`, `}` and `\` would otherwise be parsed as
@@ -47,6 +57,29 @@ function toSnippetWithCursor(
 	const before = escapeSnippet(completion.slice(0, cursorOffset));
 	const after = escapeSnippet(completion.slice(cursorOffset));
 	return new vscode.SnippetString(`${before}$0${after}`);
+}
+
+export function inlineEditMatchesSelectedCompletion(
+	document: vscode.TextDocument,
+	result: AutocompleteResult,
+	selectedCompletionInfo: vscode.SelectedCompletionInfo,
+): boolean {
+	const editRange = new vscode.Range(
+		document.positionAt(result.startIndex),
+		document.positionAt(result.endIndex),
+	);
+	return (
+		rangesEqual(editRange, selectedCompletionInfo.range) &&
+		result.completion.startsWith(selectedCompletionInfo.text)
+	);
+}
+
+function rangesEqual(a: vscode.Range, b: vscode.Range): boolean {
+	return positionsEqual(a.start, b.start) && positionsEqual(a.end, b.end);
+}
+
+function positionsEqual(a: vscode.Position, b: vscode.Position): boolean {
+	return a.line === b.line && a.character === b.character;
 }
 
 export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
@@ -86,7 +119,7 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 	async provideInlineCompletionItems(
 		document: vscode.TextDocument,
 		position: vscode.Position,
-		_context: vscode.InlineCompletionContext,
+		context: vscode.InlineCompletionContext,
 		token: vscode.CancellationToken,
 	): Promise<vscode.InlineCompletionList | undefined> {
 		const requestId = ++this.requestCounter;
@@ -288,6 +321,24 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 					continue;
 				}
 
+				if (
+					context.selectedCompletionInfo &&
+					!inlineEditMatchesSelectedCompletion(
+						document,
+						normalizedResult,
+						context.selectedCompletionInfo,
+					)
+				) {
+					logger.debug(
+						"Suppressing inline edit: incompatible with selected completion",
+						{
+							id: normalizedResult.id,
+							selectedText: context.selectedCompletionInfo.text,
+						},
+					);
+					continue;
+				}
+
 				if (classification.decision === "JUMP") {
 					if (!renderMode) {
 						renderMode = "JUMP";
@@ -305,6 +356,24 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 			}
 
 			if (renderMode === "JUMP" && jumpResult) {
+				if (config.useCopilotStyleNextEditPresentation) {
+					const proposedInlineEdit = this.buildCompletionItem(
+						document,
+						position,
+						jumpResult,
+						{ useProposedInlineEditPresentation: true },
+					);
+					if (proposedInlineEdit) {
+						this.clearSuggestionQueue(
+							"jump suggestion rendered as proposed inline edit",
+						);
+						this.jumpEditManager.clearJumpEdit();
+						logger.info("Edit classified as proposed VS Code inline edit", {
+							id: jumpResult.id,
+						});
+						return proposedInlineEdit;
+					}
+				}
 				this.clearSuggestionQueue("jump suggestion takes precedence");
 				logger.info("Edit classified as jump edit, showing decoration", {
 					id: jumpResult.id,
@@ -492,6 +561,7 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 		document: vscode.TextDocument,
 		position: vscode.Position,
 		result: AutocompleteResult,
+		options: CompletionItemBuildOptions = {},
 	): vscode.InlineCompletionList | undefined {
 		const cursorOffset = document.offsetAt(position);
 		const startPosition = document.positionAt(result.startIndex);
@@ -510,7 +580,14 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 		});
 		logger.trace("Creating inline edit completion:", result.completion);
 
-		if (result.startIndex < cursorOffset) {
+		const useProposedInlineEditPresentation =
+			options.useProposedInlineEditPresentation &&
+			config.useCopilotStyleNextEditPresentation;
+
+		if (
+			result.startIndex < cursorOffset &&
+			!useProposedInlineEditPresentation
+		) {
 			logger.debug(
 				"Edit before cursor cannot be shown as ghost text; falling back to jump edit",
 				{
@@ -538,11 +615,24 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 				? toSnippetWithCursor(result.completion, result.cursorTargetOffset)
 				: result.completion;
 		const item = new vscode.InlineCompletionItem(insertText, editRange);
+		const replacedText = document.getText(editRange);
+		if (replacedText && !result.completion.startsWith(replacedText)) {
+			item.filterText = replacedText;
+		}
 		item.command = {
 			title: "Accept Sweep Inline Edit",
 			command: "sweep.acceptInlineEdit",
 			arguments: [acceptedSuggestion],
 		};
+		if (useProposedInlineEditPresentation) {
+			const proposedOptions: Parameters<typeof markAsProposedInlineEdit>[1] = {
+				correlationId: result.id,
+			};
+			if (options.displayLocation) {
+				proposedOptions.displayLocation = options.displayLocation;
+			}
+			markAsProposedInlineEdit(item, proposedOptions);
+		}
 
 		this.lastInlineEdit = {
 			uri: document.uri.toString(),
@@ -551,7 +641,7 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 			version: document.version,
 			suggestion: acceptedSuggestion,
 		};
-		return { items: [item] };
+		return enableForwardStability({ items: [item] });
 	}
 
 	async handleCursorMove(
@@ -721,6 +811,18 @@ export class InlineEditProvider implements vscode.InlineCompletionItemProvider {
 					id: normalized.id,
 					remaining: queue.suggestions.length,
 				});
+				if (config.useCopilotStyleNextEditPresentation) {
+					const proposedInlineEdit = this.buildCompletionItem(
+						document,
+						position,
+						normalized,
+						{ useProposedInlineEditPresentation: true },
+					);
+					if (proposedInlineEdit) {
+						this.shouldConsumeQueuedSuggestion = false;
+						return proposedInlineEdit;
+					}
+				}
 				this.jumpEditManager.setPendingJumpEdit(document, normalized);
 				this.shouldConsumeQueuedSuggestion = false;
 				return undefined;

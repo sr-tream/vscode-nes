@@ -1,5 +1,13 @@
 import { mock } from "bun:test";
 
+type MockConfiguration = Record<string, unknown>;
+
+function getMockConfiguration(): MockConfiguration {
+	return ((
+		globalThis as typeof globalThis & { __vscodeMockConfiguration?: unknown }
+	).__vscodeMockConfiguration ?? {}) as MockConfiguration;
+}
+
 // Stand-in for the `vscode` extension API so tests can import production
 // modules (logger, config, document-tracker, …) without the VS Code
 // Extension Host. Only stub what production module-load actually
@@ -30,12 +38,17 @@ mock.module("vscode", () => ({
 		onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
 		onDidChangeActiveColorTheme: () => ({ dispose: () => {} }),
 		onDidChangeTextEditorSelection: () => ({ dispose: () => {} }),
+		createTextEditorDecorationType: () => ({ dispose: () => {} }),
+		activeColorTheme: { kind: 1 },
 	},
 	workspace: {
 		textDocuments: [],
 		workspaceFolders: undefined,
 		getConfiguration: () => ({
-			get: <T>(_key: string, defaultValue?: T) => defaultValue,
+			get: <T>(key: string, defaultValue?: T) => {
+				const value = getMockConfiguration()[key];
+				return value === undefined ? defaultValue : (value as T);
+			},
 			update: () => Promise.resolve(),
 			inspect: () => undefined,
 		}),
@@ -78,12 +91,27 @@ mock.module("vscode", () => ({
 			public active: unknown,
 		) {}
 	},
+	SnippetString: class {
+		value: string;
+		constructor(value = "") {
+			this.value = value;
+		}
+	},
+	InlineCompletionItem: class {
+		filterText?: string;
+		command?: unknown;
+		constructor(
+			public insertText: unknown,
+			public range?: unknown,
+		) {}
+	},
 	EventEmitter: class {
 		event = () => ({ dispose: () => {} });
 		fire() {}
 		dispose() {}
 	},
 	ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+	ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
 	TextDocumentChangeReason: { Undo: 1, Redo: 2 },
 	DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
 	Diagnostic: class {

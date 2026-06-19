@@ -49,6 +49,13 @@ export class SweepConfig {
 		return this.config.get<number>("autocompleteSnoozeUntil", 0);
 	}
 
+	get useCopilotStyleNextEditPresentation(): boolean {
+		return this.config.get<boolean>(
+			"useCopilotStyleNextEditPresentation",
+			false,
+		);
+	}
+
 	get serverUrl(): string {
 		return this.config.get<string>("serverUrl", DEFAULT_SERVER_URL);
 	}

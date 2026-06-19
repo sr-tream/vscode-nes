@@ -110,4 +110,42 @@ describe("classifyEditDisplay", () => {
 			reason: "multiline-replacement-at-cursor",
 		});
 	});
+
+	test("returns JUMP for same-line replacement at cursor that does not extend existing text", () => {
+		const result = classifyEditDisplay({
+			cursorLine: 0,
+			editStartLine: 0,
+			editEndLine: 0,
+			cursorOffset: 7,
+			startIndex: 7,
+			endIndex: 32,
+			completion: "*",
+			replacedText: "broken import tail",
+			isOnSingleNewlineBoundary: false,
+		});
+
+		expect(result).toEqual({
+			decision: "JUMP",
+			reason: "same-line-replacement-at-cursor",
+		});
+	});
+
+	test("returns INLINE for same-line replacement at cursor when completion extends existing text", () => {
+		const result = classifyEditDisplay({
+			cursorLine: 0,
+			editStartLine: 0,
+			editEndLine: 0,
+			cursorOffset: 14,
+			startIndex: 14,
+			endIndex: 18,
+			completion: "highWatermark",
+			replacedText: "high",
+			isOnSingleNewlineBoundary: false,
+		});
+
+		expect(result).toEqual({
+			decision: "INLINE",
+			reason: "inline-safe",
+		});
+	});
 });

@@ -4,6 +4,7 @@ import { ApiClient } from "~/api/client.ts";
 import { disposeLogger, initLogger, logger } from "~/core/logger.ts";
 import { InlineEditProvider } from "~/editor/inline-edit-provider.ts";
 import { JumpEditManager } from "~/editor/jump-edit-manager.ts";
+import { registerInlineCompletionItemProviderWithMetadata } from "~/editor/proposed-inline-edit.ts";
 import {
 	initSyntaxHighlighter,
 	reloadTheme,
@@ -37,11 +38,15 @@ export function activate(context: vscode.ExtensionContext) {
 		jumpEditManager.refreshJumpEditDecorations();
 	};
 
-	const providerDisposable =
-		vscode.languages.registerInlineCompletionItemProvider(
-			{ pattern: "**/*" },
-			provider,
-		);
+	const providerDisposable = registerInlineCompletionItemProviderWithMetadata(
+		{ pattern: "**/*" },
+		provider,
+		{
+			displayName: "NESweep",
+			groupId: "nes",
+			debounceDelayMs: 0,
+		},
+	);
 
 	const triggerCommand = vscode.commands.registerCommand(
 		"sweep.triggerNextEdit",
