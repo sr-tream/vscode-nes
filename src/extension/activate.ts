@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { ApiClient } from "~/api/client.ts";
+import { config } from "~/core/config.ts";
 import { disposeLogger, initLogger, logger } from "~/core/logger.ts";
 import { InlineEditProvider } from "~/editor/inline-edit-provider.ts";
 import { JumpEditManager } from "~/editor/jump-edit-manager.ts";
@@ -22,6 +23,25 @@ let jumpEditManager: JumpEditManager;
 let provider: InlineEditProvider;
 let statusBar: SweepStatusBar;
 let completionServer: CompletionServer;
+let copilotStylePresentationWarningShown = false;
+
+const COPILOT_STYLE_PROPOSED_API_EXTENSION_ID = "sr-team.nesweep";
+
+function maybeWarnAboutCopilotStylePresentation(): void {
+	if (
+		!config.useCopilotStyleNextEditPresentation ||
+		copilotStylePresentationWarningShown
+	) {
+		return;
+	}
+
+	copilotStylePresentationWarningShown = true;
+	void vscode.window.showWarningMessage(
+		`NESweep Copilot-style next-edit presentation uses VS Code proposed API. ` +
+			`It requires VS Code Insiders launched with --enable-proposed-api=${COPILOT_STYLE_PROPOSED_API_EXTENSION_ID}; ` +
+			`otherwise VS Code may silently ignore the inline edit presentation fields.`,
+	);
+}
 
 export function activate(context: vscode.ExtensionContext) {
 	const logChannel = initLogger();
@@ -99,11 +119,22 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	const themeConfigListener = vscode.workspace.onDidChangeConfiguration(
 		(event) => {
-			if (!event.affectsConfiguration("workbench.colorTheme")) return;
-			// The colorTheme setting can update slightly after the active theme event.
-			setTimeout(() => {
-				refreshTheme();
-			}, 0);
+			if (
+				event.affectsConfiguration("sweep.useCopilotStyleNextEditPresentation")
+			) {
+				if (config.useCopilotStyleNextEditPresentation) {
+					maybeWarnAboutCopilotStylePresentation();
+				} else {
+					copilotStylePresentationWarningShown = false;
+				}
+			}
+
+			if (event.affectsConfiguration("workbench.colorTheme")) {
+				// The colorTheme setting can update slightly after the active theme event.
+				setTimeout(() => {
+					refreshTheme();
+				}, 0);
+			}
 		},
 	);
 
@@ -171,6 +202,7 @@ export function activate(context: vscode.ExtensionContext) {
 	// Probe the completion server once at startup so the user gets an early
 	// warning if it's down or the URL is wrong; the actual model load is
 	// deferred to the first completion.
+	maybeWarnAboutCopilotStylePresentation();
 	void completionServer.ensureReachable();
 }
 
