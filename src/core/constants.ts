@@ -5,6 +5,10 @@ export const DEFAULT_MAX_CONTEXT_FILES = 5;
 // across other recent files (capped by DEFAULT_MAX_CONTEXT_FILES), the
 // remainder fills from the active file's recent activity.
 export const DEFAULT_MAX_EDIT_HISTORY = 15;
+// Character budget for the rendered recent_changes prompt section. The edit
+// history count cap limits records, not record size; bulk edits can otherwise
+// contribute tens of thousands of chars each.
+export const DEFAULT_MAX_RECENT_CHANGES_CHARS = 12000;
 export const DEFAULT_SERVER_URL = "http://localhost:8080";
 export const DEFAULT_COMPLETION_TIMEOUT_MS = 10_000;
 // Drop diagnostics whose line is more than this many lines from the cursor.

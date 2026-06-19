@@ -8,6 +8,7 @@ import {
 	DEFAULT_DIAG_RADIUS,
 	DEFAULT_MAX_CONTEXT_FILES,
 	DEFAULT_MAX_EDIT_HISTORY,
+	DEFAULT_MAX_RECENT_CHANGES_CHARS,
 	DEFAULT_RULES_MAX_CHARS,
 	DEFAULT_SERVER_URL,
 	MODEL_NAME,
@@ -39,6 +40,13 @@ export class SweepConfig {
 
 	get maxEditHistory(): number {
 		return this.config.get<number>("maxEditHistory", DEFAULT_MAX_EDIT_HISTORY);
+	}
+
+	get maxRecentChangesChars(): number {
+		return this.config.get<number>(
+			"maxRecentChangesChars",
+			DEFAULT_MAX_RECENT_CHANGES_CHARS,
+		);
 	}
 
 	get autocompleteExclusionPatterns(): string[] {

@@ -157,6 +157,12 @@
 					"minimum": 1,
 					"markdownDescription": "Total number of recent-edit diffs surfaced in the prompt. The budget is split: ~20% reserved as a floor for the active file so its history survives long stints in other files, ~40% spread across up to `#sweep.maxContextFiles#` other recent files, and the remainder fills from the active file's recent activity. Typing-burst edits on the same line within 60 s are coalesced before counting against the budget."
 				},
+				"sweep.maxRecentChangesChars": {
+					"type": "number",
+					"default": 12000,
+					"minimum": 0,
+					"markdownDescription": "Maximum number of characters from formatted recent-edit history to include in the prompt. `#sweep.maxEditHistory#` limits the number of diff records, while this limits their rendered size so large paste/format/bulk edits cannot overflow small model contexts. Set to `0` to omit recent-edit history."
+				},
 				"sweep.autocompleteExclusionPatterns": {
 					"type": "array",
 					"items": {

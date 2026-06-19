@@ -2,7 +2,11 @@ import * as os from "node:os";
 import * as vscode from "vscode";
 
 import { config } from "~/core/config.ts";
-import { MAX_TOKENS, TEMPERATURE } from "~/core/constants.ts";
+import {
+	DEFAULT_MAX_RECENT_CHANGES_CHARS,
+	MAX_TOKENS,
+	TEMPERATURE,
+} from "~/core/constants.ts";
 import { logger } from "~/core/logger.ts";
 import type { CompletionServer } from "~/services/completion-server.ts";
 import { toUnixPath } from "~/utils/path.ts";
@@ -50,12 +54,80 @@ const RETRIEVAL_CONTEXT_LINES_ABOVE = 9;
 const RETRIEVAL_CONTEXT_LINES_BELOW = 9;
 const MAX_CLIPBOARD_LINES = 20;
 const MAX_DIAGNOSTICS = 15;
+const RECENT_CHANGE_TRUNCATION_MARKER = "\n...[truncated]\n";
+const MIN_TRUNCATED_RECENT_CHANGE_CHARS = 120;
 
 // Per-chunk retrieval truncation. Original Sweep used 200 lines against a
 // 150/150 broad window (≈2/3 of the broad-context budget); we keep the same
 // ratio so user-tuned sweep.broadBefore/broadAfter scales retrieval too.
 function retrievalChunkLines(): number {
 	return Math.floor(((config.broadBefore + config.broadAfter) * 2) / 3);
+}
+
+export function formatRecentChanges(
+	changes: RecentChange[],
+	maxChars = DEFAULT_MAX_RECENT_CHANGES_CHARS,
+): string {
+	const budget = Math.max(0, Math.floor(maxChars));
+	if (budget === 0) return "";
+
+	let result = "";
+	for (const change of changes) {
+		if (!change.diff) continue;
+
+		const cleaned = cleanRecentChangeDiff(change.diff);
+		if (!cleaned) continue;
+
+		const header = `File: ${change.path}:\n`;
+		const entry = `${header}${cleaned}\n`;
+		const remaining = budget - result.length;
+		if (remaining <= 0) break;
+
+		if (entry.length <= remaining) {
+			result += entry;
+			continue;
+		}
+
+		if (remaining < MIN_TRUNCATED_RECENT_CHANGE_CHARS) break;
+		const truncated = truncateRecentChangeEntry(header, cleaned, remaining);
+		if (truncated === "") break;
+		result += truncated;
+		break;
+	}
+	return result;
+}
+
+function cleanRecentChangeDiff(diff: string): string {
+	const lines = diff
+		.split("\n")
+		.filter(
+			(line) =>
+				!line.startsWith("Index:") &&
+				!line.startsWith("===") &&
+				!line.startsWith("---") &&
+				!line.startsWith("+++"),
+		);
+	return lines.join("\n").trim();
+}
+
+function truncateRecentChangeEntry(
+	header: string,
+	body: string,
+	maxChars: number,
+): string {
+	const bodyBudget =
+		maxChars - header.length - RECENT_CHANGE_TRUNCATION_MARKER.length;
+	if (bodyBudget <= 0) return "";
+
+	let truncated = body.slice(0, bodyBudget);
+	const lastNewline = truncated.lastIndexOf("\n");
+	if (lastNewline > 0) {
+		truncated = truncated.slice(0, lastNewline);
+	}
+	truncated = truncated.trimEnd();
+	if (truncated === "") return "";
+
+	return `${header}${truncated}${RECENT_CHANGE_TRUNCATION_MARKER}`;
 }
 
 export class ApiClient {
@@ -234,7 +306,10 @@ export class ApiClient {
 		} = input;
 
 		const filePath = toUnixPath(document.uri.fsPath) || "untitled";
-		const recentChangesText = this.formatRecentChanges(recentChanges);
+		const recentChangesText = formatRecentChanges(
+			recentChanges,
+			config.maxRecentChangesChars,
+		);
 		const fileChunks = this.buildFileChunks(recentBuffers);
 		const retrievalChunks = await this.buildRetrievalChunks(
 			document,
@@ -263,28 +338,6 @@ export class ApiClient {
 			recent_user_actions: userActions,
 			use_bytes: true,
 		};
-	}
-
-	private formatRecentChanges(changes: RecentChange[]): string {
-		let result = "";
-		for (const change of changes) {
-			if (!change.diff) continue;
-
-			const lines = change.diff
-				.split("\n")
-				.filter(
-					(line) =>
-						!line.startsWith("Index:") &&
-						!line.startsWith("===") &&
-						!line.startsWith("---") &&
-						!line.startsWith("+++"),
-				);
-			const cleaned = lines.join("\n").trim();
-			if (cleaned) {
-				result += `File: ${change.path}:\n${cleaned}\n`;
-			}
-		}
-		return result;
 	}
 
 	private buildFileChunks(buffers: RecentBuffer[]): FileChunk[] {

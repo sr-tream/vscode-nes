@@ -39,6 +39,7 @@ latency — is removed.
 | `sweep.serverUrl` | `http://localhost:8080` | `/v1/completions` base URL |
 | `sweep.modelName` | `sweepai/sweep-next-edit` | `model` field in the request body; substring-matched to pick the prompt format |
 | `sweep.completionTimeoutMs` | `10000` | Per-request timeout (ms) |
+| `sweep.maxRecentChangesChars` | `12000` | Character budget for formatted recent-edit history; `0` disables history |
 | `sweep.diagRadius` | `12` | ±N lines around cursor; `0` disables |
 | `sweep.broadBefore` | `125` | Lines of broad context before cursor |
 | `sweep.broadAfter` | `75` | Lines of broad context after cursor |
