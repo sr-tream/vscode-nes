@@ -40,6 +40,10 @@ latency — is removed.
 | `sweep.modelName` | `sweepai/sweep-next-edit` | `model` field in the request body; substring-matched to pick the prompt format |
 | `sweep.completionTimeoutMs` | `10000` | Per-request timeout (ms) |
 | `sweep.maxRecentChangesChars` | `12000` | Character budget for formatted recent-edit history; `0` disables history |
+| `sweep.includeClipboardContext` | `true` | Include clipboard text as retrieval context; it is emitted last in retrieval |
+| `sweep.stableRetrievalOrdering` | `false` | Sort retrieval chunks deterministically to improve prefix-cache reuse |
+| `sweep.reuseIdenticalPromptResults` | `false` | Reuse recent temperature-0 results for byte-identical prompts |
+| `sweep.identicalPromptCacheTtlMs` | `5000` | TTL for identical-prompt result reuse |
 | `sweep.diagRadius` | `12` | ±N lines around cursor; `0` disables |
 | `sweep.broadBefore` | `125` | Lines of broad context before cursor |
 | `sweep.broadAfter` | `75` | Lines of broad context after cursor |

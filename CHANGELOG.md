@@ -2,6 +2,12 @@
 
 Notable NESweep fork changes are documented here, starting from the fork point at `v0.5.0-fork.1`.
 
+## 1.2.1 - 2026-07-20
+
+- Improved prefix caching for Sweep models by moving volatile active-file context to the end of the prompt.
+- Added deterministic retrieval ordering and optional clipboard context.
+- Added optional reuse of identical temperature-zero prompt results in the client.
+
 ## 1.2.0 - 2026-06-19
 
 - Added optional Copilot-style proposed inline edit presentation.

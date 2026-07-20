@@ -49,6 +49,25 @@ export class SweepConfig {
 		);
 	}
 
+	get includeClipboardContext(): boolean {
+		return this.config.get<boolean>("includeClipboardContext", true);
+	}
+
+	get stableRetrievalOrdering(): boolean {
+		return this.config.get<boolean>("stableRetrievalOrdering", false);
+	}
+
+	get reuseIdenticalPromptResults(): boolean {
+		return this.config.get<boolean>("reuseIdenticalPromptResults", false);
+	}
+
+	get identicalPromptCacheTtlMs(): number {
+		return Math.max(
+			0,
+			this.config.get<number>("identicalPromptCacheTtlMs", 5000),
+		);
+	}
+
 	get autocompleteExclusionPatterns(): string[] {
 		return this.config.get<string[]>("autocompleteExclusionPatterns", []);
 	}

@@ -11,9 +11,6 @@
 //   <|file_sep|>context/rules                NESweep extension; cache-stable
 //   {rules body}
 //
-//   <|file_sep|>{path}                       broad file context (~300 lines)
-//   {file body around cursor}
-//
 //   <|file_sep|>context/retrieval            other open buffers + LSP results
 //   <|file_sep|>{snapshot.path}
 //   {snapshot body}
@@ -27,6 +24,9 @@
 //
 //   <|file_sep|>context/diagnostics          omitted if no diagnostics
 //   Line N: [source] message
+//
+//   <|file_sep|>{path}                       broad file context (~300 lines)
+//   {file body around cursor}
 //
 //   <|file_sep|>original/{path}:N:M          edit window, no marker
 //   {window lines}
@@ -54,7 +54,7 @@ const WINDOW_LINES_BEFORE = 30;
 const WINDOW_LINES_AFTER = 30;
 
 export interface SweepPromptOptions {
-	// Lines to keep before / after cursor in the leading <|file_sep|>{path}
+	// Lines to keep before / after cursor in the <|file_sep|>{path}
 	// broad-context section. Cursortab hardcodes ±150 in its provider, but
 	// the section is informational only — the original/current/updated edit
 	// window is independent — so trimming here only reduces token pressure.
@@ -64,9 +64,8 @@ export interface SweepPromptOptions {
 	// cursor. 0 = no filter (keep all). cursortab forwards every LSP
 	// diagnostic on the file, which on chatty linters dominates the prompt.
 	diagRadius: number;
-	// Already-comment-formatted rules block, spliced in immediately after
-	// the leading <|file_sep|>{path} header (i.e. as a top-of-file comment
-	// from the model's perspective). Empty string disables.
+	// Already-comment-formatted rules block, emitted as a stable sibling
+	// section before the volatile prompt context. Empty string disables.
 	rules: string;
 	// Single-line comment prefix for the document's language ("//", "#",
 	// "--"). Used to format diagnostics as familiar TODO/FIXME comments
@@ -154,10 +153,8 @@ export function buildSweepPrompt(
 		opts.broadBefore,
 		opts.broadAfter,
 	);
-	if (broad !== "") {
-		body += `<|file_sep|>${req.file_path}\n${broad}\n`;
-	}
-
+	const broadSection =
+		broad === "" ? "" : `<|file_sep|>${req.file_path}\n${broad}\n`;
 	const retrieval = formatRetrievalSection(
 		req.file_chunks,
 		req.retrieval_chunks,
@@ -186,6 +183,8 @@ export function buildSweepPrompt(
 		);
 		if (diagnostics !== "") body += diagnostics;
 	}
+
+	body += broadSection;
 
 	const windowText = promptLines
 		.slice(windowStartLine, windowEndLine)

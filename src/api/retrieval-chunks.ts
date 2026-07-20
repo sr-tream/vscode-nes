@@ -1,5 +1,36 @@
 import type { FileChunk } from "./schemas.ts";
 
+export function orderRetrievalChunks(
+	chunks: FileChunk[],
+	stable: boolean,
+	maxChunks = Number.POSITIVE_INFINITY,
+): FileChunk[] {
+	const ordered = stable
+		? [...chunks].sort(compareRetrievalChunks)
+		: [...chunks];
+	const clipboard = ordered.filter(
+		(chunk) => chunk.file_path === "clipboard.txt",
+	);
+	const nonClipboard = ordered.filter(
+		(chunk) => chunk.file_path !== "clipboard.txt",
+	);
+	return [
+		...nonClipboard.slice(0, maxChunks - clipboard.length),
+		...clipboard.slice(0, maxChunks),
+	].slice(0, maxChunks);
+}
+
+function compareRetrievalChunks(a: FileChunk, b: FileChunk): number {
+	const aClipboard = a.file_path === "clipboard.txt" ? 1 : 0;
+	const bClipboard = b.file_path === "clipboard.txt" ? 1 : 0;
+	if (aClipboard !== bClipboard) return aClipboard - bClipboard;
+	if (a.file_path !== b.file_path) return a.file_path < b.file_path ? -1 : 1;
+	if (a.start_line !== b.start_line) return a.start_line - b.start_line;
+	if (a.end_line !== b.end_line) return a.end_line - b.end_line;
+	if (a.content === b.content) return 0;
+	return a.content < b.content ? -1 : 1;
+}
+
 export function truncateRetrievalChunk(
 	chunk: FileChunk,
 	maxLines: number,

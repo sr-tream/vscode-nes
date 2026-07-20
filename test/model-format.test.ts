@@ -69,6 +69,31 @@ describe("buildSweepPrompt", () => {
 		expect(result.prompt).toContain("<|file_sep|>updated/src/foo.ts");
 		expect(result.prompt).toContain("<|cursor|>");
 	});
+
+	test("places active broad context after stable retrieval context", () => {
+		const result = buildSweepPrompt(
+			makeRequest({
+				retrieval_chunks: [
+					{
+						file_path: "src/other.ts",
+						start_line: 1,
+						end_line: 1,
+						content: "const stable = true;",
+						timestamp: 1,
+					},
+				],
+				recent_changes: "File: src/foo.ts:\n@@\n-old\n+new",
+			}),
+		);
+		const retrieval = result.prompt.indexOf("<|file_sep|>context/retrieval");
+		const diff = result.prompt.indexOf("<|file_sep|>recent_changes");
+		const active = result.prompt.indexOf("<|file_sep|>src/foo.ts");
+		const original = result.prompt.indexOf("<|file_sep|>original/src/foo.ts");
+		expect(retrieval).toBeGreaterThanOrEqual(0);
+		expect(diff).toBeGreaterThan(retrieval);
+		expect(active).toBeGreaterThan(diff);
+		expect(original).toBeGreaterThan(active);
+	});
 });
 
 describe("buildZeta2Prompt", () => {

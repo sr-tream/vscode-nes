@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
 	fuseAndDedupRetrievalSnippets,
+	orderRetrievalChunks,
 	truncateRetrievalChunk,
 } from "~/api/retrieval-chunks.ts";
 import type { FileChunk } from "~/api/schemas.ts";
@@ -16,6 +17,44 @@ function chunk(overrides: Partial<FileChunk>): FileChunk {
 		...overrides,
 	};
 }
+
+describe("orderRetrievalChunks", () => {
+	test("sorts equivalent retrieval results and keeps clipboard last", () => {
+		const result = orderRetrievalChunks(
+			[
+				chunk({ file_path: "clipboard.txt", content: "clipboard" }),
+				chunk({ file_path: "src/z.h", content: "z" }),
+				chunk({ file_path: "src/a.h", content: "a" }),
+			],
+			true,
+		);
+
+		expect(result.map((item) => item.file_path)).toEqual([
+			"src/a.h",
+			"src/z.h",
+			"clipboard.txt",
+		]);
+	});
+
+	test("reserves the final slot for clipboard instead of dropping code", () => {
+		const result = orderRetrievalChunks(
+			[
+				chunk({ file_path: "src/a.h" }),
+				chunk({ file_path: "src/b.h" }),
+				chunk({ file_path: "src/c.h" }),
+				chunk({ file_path: "clipboard.txt" }),
+			],
+			false,
+			3,
+		);
+
+		expect(result.map((item) => item.file_path)).toEqual([
+			"src/a.h",
+			"src/b.h",
+			"clipboard.txt",
+		]);
+	});
+});
 
 describe("truncateRetrievalChunk", () => {
 	test("truncates long chunks and updates end_line", () => {

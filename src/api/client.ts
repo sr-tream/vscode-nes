@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as os from "node:os";
 import * as vscode from "vscode";
 
@@ -15,9 +16,11 @@ import {
 	utf8ByteOffsetAt,
 	utf8ByteOffsetToUtf16Offset,
 } from "~/utils/text.ts";
+import type { CompletionResult } from "./completion-client.ts";
 import { detectModelFormat, type ModelPrompt } from "./model-format.ts";
 import {
 	fuseAndDedupRetrievalSnippets,
+	orderRetrievalChunks,
 	truncateRetrievalChunk,
 } from "./retrieval-chunks.ts";
 import { getCommentPrefix, loadWorkspaceRules } from "./rules.ts";
@@ -133,6 +136,10 @@ function truncateRecentChangeEntry(
 export class ApiClient {
 	private server: CompletionServer;
 	private idCounter = 0;
+	private readonly identicalPromptResults = new Map<
+		string,
+		{ completion: CompletionResult; expiresAt: number }
+	>();
 	private inFlight = 0;
 	private readonly processingEmitter = new vscode.EventEmitter<boolean>();
 	readonly onDidChangeProcessing = this.processingEmitter.event;
@@ -193,6 +200,7 @@ export class ApiClient {
 					});
 
 		const reqStarted = Date.now();
+		const promptCacheKey = this.getPromptCacheKey(prompt);
 		logger.info(
 			`→ /v1/completions format=${format} model=${config.modelName} max_tokens=${MAX_TOKENS} prompt_chars=${prompt.prompt.length}`,
 		);
@@ -200,18 +208,29 @@ export class ApiClient {
 		this.inFlight++;
 		if (this.inFlight === 1) this.processingEmitter.fire(true);
 		try {
-			const completion = await this.server.getClient().complete(
-				{
-					model: config.modelName,
-					prompt: prompt.prompt,
-					temperature: TEMPERATURE,
-					maxTokens: MAX_TOKENS,
-					stop: prompt.stopTokens,
-					timeoutMs: config.completionTimeoutMs,
-				},
-				signal,
-			);
-			this.server.reportSuccess();
+			if (signal?.aborted) return null;
+			let completion = config.reuseIdenticalPromptResults
+				? this.getIdenticalPromptResult(promptCacheKey)
+				: null;
+			if (completion) {
+				logger.info("↻ reused identical /v1/completions prompt result");
+			} else {
+				completion = await this.server.getClient().complete(
+					{
+						model: config.modelName,
+						prompt: prompt.prompt,
+						temperature: TEMPERATURE,
+						maxTokens: MAX_TOKENS,
+						stop: prompt.stopTokens,
+						timeoutMs: config.completionTimeoutMs,
+					},
+					signal,
+				);
+				this.server.reportSuccess();
+				if (config.reuseIdenticalPromptResults) {
+					this.rememberIdenticalPromptResult(promptCacheKey, completion);
+				}
+			}
 			const elapsed = ((Date.now() - reqStarted) / 1000).toFixed(2);
 			logger.info(
 				`← /v1/completions ${elapsed}s prompt_eval=${completion.promptEvalCount ?? "?"} eval=${completion.evalCount ?? "?"} finish=${completion.finishReason} response_chars=${completion.text.length}`,
@@ -290,6 +309,44 @@ export class ApiClient {
 			this.inFlight--;
 			if (this.inFlight === 0) this.processingEmitter.fire(false);
 		}
+	}
+
+	private getPromptCacheKey(prompt: ModelPrompt): string {
+		return createHash("sha256")
+			.update(
+				JSON.stringify({
+					model: config.modelName,
+					prompt: prompt.prompt,
+					temperature: TEMPERATURE,
+					maxTokens: MAX_TOKENS,
+					stop: prompt.stopTokens,
+				}),
+			)
+			.digest("hex");
+	}
+
+	private getIdenticalPromptResult(key: string): CompletionResult | null {
+		const entry = this.identicalPromptResults.get(key);
+		if (!entry) return null;
+		if (entry.expiresAt <= Date.now()) {
+			this.identicalPromptResults.delete(key);
+			return null;
+		}
+		return entry.completion;
+	}
+
+	private rememberIdenticalPromptResult(
+		key: string,
+		completion: CompletionResult,
+	): void {
+		if (this.identicalPromptResults.size >= 32) {
+			const oldestKey = this.identicalPromptResults.keys().next().value;
+			if (oldestKey) this.identicalPromptResults.delete(oldestKey);
+		}
+		this.identicalPromptResults.set(key, {
+			completion,
+			expiresAt: Date.now() + config.identicalPromptCacheTtlMs,
+		});
 	}
 
 	private async buildRequest(
@@ -374,7 +431,9 @@ export class ApiClient {
 		const [definitionChunks, usageChunks, clipboardChunks] = await Promise.all([
 			this.buildDefinitionChunks(document, position),
 			this.buildUsageChunks(document, position),
-			this.buildClipboardChunks(),
+			config.includeClipboardContext
+				? this.buildClipboardChunks()
+				: Promise.resolve([]),
 		]);
 
 		// Diagnostics are emitted as a structured, distance-filtered section
@@ -383,12 +442,17 @@ export class ApiClient {
 		// editor_diagnostics. We deliberately don't include them as a
 		// retrieval chunk too — that path was unfiltered (file-wide) and
 		// duplicated the same data in a less useful position in the prompt.
-		const chunks = [...clipboardChunks, ...usageChunks, ...definitionChunks]
+		const chunks = [...usageChunks, ...definitionChunks, ...clipboardChunks]
 			.filter((chunk) => chunk.file_path !== currentFilePath)
 			.map((chunk) => truncateRetrievalChunk(chunk, retrievalChunkLines()))
 			.filter((chunk) => chunk.content.trim().length > 0);
 
-		return fuseAndDedupRetrievalSnippets(chunks).slice(-MAX_RETRIEVAL_CHUNKS);
+		const fused = fuseAndDedupRetrievalSnippets(chunks);
+		return orderRetrievalChunks(
+			fused,
+			config.stableRetrievalOrdering,
+			MAX_RETRIEVAL_CHUNKS,
+		);
 	}
 
 	private buildEditorDiagnostics(

@@ -2,7 +2,7 @@
 	"name": "nesweep",
 	"displayName": "NESweep autocompletion",
 	"description": "Next Edit Autocomplete using Sweep Model",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"publisher": "SR-team",
 	"author": {
 		"name": "SR_team"
@@ -162,6 +162,27 @@
 					"default": 12000,
 					"minimum": 0,
 					"markdownDescription": "Maximum number of characters from formatted recent-edit history to include in the prompt. `#sweep.maxEditHistory#` limits the number of diff records, while this limits their rendered size so large paste/format/bulk edits cannot overflow small model contexts. Set to `0` to omit recent-edit history."
+				},
+				"sweep.includeClipboardContext": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "Include the current clipboard text as retrieval context. Disable this to avoid clipboard changes invalidating the prompt prefix. When enabled, clipboard context is emitted after code retrieval chunks."
+				},
+				"sweep.stableRetrievalOrdering": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "Sort LSP/retrieval chunks deterministically by path and range. This can improve prefix-cache reuse when providers return equivalent results in a different order, at a possible cost to relevance ordering."
+				},
+				"sweep.reuseIdenticalPromptResults": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "Reuse a recent completion result when the complete prompt is byte-for-byte identical. Useful with deterministic temperature-0 models; disabled by default."
+				},
+				"sweep.identicalPromptCacheTtlMs": {
+					"type": "number",
+					"default": 5000,
+					"minimum": 0,
+					"markdownDescription": "How long an identical-prompt completion result may be reused when `sweep.reuseIdenticalPromptResults` is enabled."
 				},
 				"sweep.autocompleteExclusionPatterns": {
 					"type": "array",
