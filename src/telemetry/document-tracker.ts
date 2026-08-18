@@ -24,6 +24,14 @@ export function isTrackableDocument(document: vscode.TextDocument): boolean {
 	return TRACKABLE_SCHEMES.has(document.uri.scheme);
 }
 
+// "Last seen files" context should only ever reference files inside the
+// current workspace. Files opened from outside (e.g. a standalone file or a
+// path in another project) carry no workspace-relative path and would leak
+// absolute filesystem paths into the prompt, so they are excluded.
+export function isInWorkspace(uri: vscode.Uri): boolean {
+	return vscode.workspace.getWorkspaceFolder(uri) !== undefined;
+}
+
 // Save after this much inactivity. Matches the typical LLM prefix-cache
 // TTL — once the user has been idle that long, the prior session is
 // effectively gone from the server's cache anyway, so capturing the
@@ -159,6 +167,8 @@ export class DocumentTracker implements vscode.Disposable {
 		} catch {
 			// File may not exist on disk (untitled, etc.)
 		}
+
+		if (!isInWorkspace(document.uri)) return;
 
 		const snapshot: FileSnapshot = {
 			uri,
@@ -723,6 +733,7 @@ export class DocumentTracker implements vscode.Disposable {
 			try {
 				const uri = vscode.Uri.parse(entry.uri);
 				if (uri.scheme !== "file") continue;
+				if (!isInWorkspace(uri)) continue;
 				const stat = await vscode.workspace.fs.stat(uri);
 				const bytes = await vscode.workspace.fs.readFile(uri);
 				if (this.recentFiles.has(entry.uri)) continue;
